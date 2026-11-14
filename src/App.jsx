@@ -3,6 +3,7 @@ import { createClient } from '@supabase/supabase-js'
 const supabaseUrl = 'https://nymwaxuzfyclynucwavr.supabase.co'
 const supabaseKey = 'sb_publishable_EPQQAp7s9TRI0Qa0bBMxLQ_62mefp-a'
 const supabase = createClient(supabaseUrl, supabaseKey)
+
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet,
@@ -121,99 +122,7 @@ const calcularResumenInventario = (item) => {
   };
 };
 
-const INITIAL_DATA = [
-  {
-    id: 'REC-101',
-    fecha: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-    tipo: 'INGRESO',
-    modoRegistro: 'GENERAL',
-    actividad: 'Venta de Comidas',
-    descripcion: 'Almuerzos dominicales (Arroz con pollo y limonada)',
-    responsable: 'Hna. Marta Gómez',
-    metodoPago: 'Efectivo',
-    montoReportado: 485000,
-    montoRecibido: 485000,
-    montoSalida: 0,
-    estado: 'VERIFICADO',
-    notaTesorero: 'Dinero contado exacto en sobre sellado.',
-  },
-  {
-    id: 'EGR-102',
-    fecha: new Date(Date.now() - 86400000 * 2).toISOString().split('T')[0],
-    tipo: 'EGRESO',
-    modoRegistro: 'GENERAL',
-    actividad: 'Insumos Cocina',
-    descripcion: 'Compra de pollo, arroz, verduras y desechables para actividad',
-    responsable: 'Hno. Carlos Ruiz',
-    metodoPago: 'Efectivo',
-    montoReportado: 0,
-    montoRecibido: 0,
-    montoSalida: 165000,
-    estado: 'EGRESO_REGISTRADO',
-    notaTesorero: 'Factura #4512 adjunta en carpeta física.',
-  },
-  {
-    id: 'REC-103',
-    fecha: new Date(Date.now() - 86400000).toISOString().split('T')[0],
-    tipo: 'INGRESO',
-    modoRegistro: 'UNIDADES',
-    actividad: 'Tamales / Bollos',
-    descripcion: 'Producción de 30 tamales tolimenses pro-templo ($12.000 c/u)',
-    responsable: 'Hno. Andrés Castro',
-    metodoPago: 'Efectivo',
-    cantidadProducida: 30,
-    precioUnitario: 12000,
-    compradores: [
-      { id: 'C-1', nombre: 'Familia Rodríguez', cantidad: 10, estadoPago: 'PAGADO', montoAbonado: 120000 },
-      { id: 'C-2', nombre: 'Hna. Lucía Pérez', cantidad: 8, estadoPago: 'PAGADO', montoAbonado: 96000 },
-      { id: 'C-3', nombre: 'Don Jorge Morales', cantidad: 7, estadoPago: 'PAGADO', montoAbonado: 84000 },
-      { id: 'C-4', nombre: 'Hno. Pedro Salgado', cantidad: 3, estadoPago: 'FIADO', montoAbonado: 12000 },
-    ],
-    montoReportado: 312000,
-    montoRecibido: 300000,
-    montoSalida: 0,
-    estado: 'DESCUADRE',
-    notaTesorero: 'Se reportaron $312.000 (incluyendo abono de $12.000), pero al contar faltaron $12.000. Revisar con Andrés.',
-  },
-  {
-    id: 'REC-104',
-    fecha: new Date().toISOString().split('T')[0],
-    tipo: 'INGRESO',
-    modoRegistro: 'UNIDADES',
-    actividad: 'Venta de Comidas',
-    descripcion: 'Bandejas de lechona dominical ($15.000 c/u)',
-    responsable: 'Laura Méndez',
-    metodoPago: 'Efectivo',
-    cantidadProducida: 20,
-    precioUnitario: 15000,
-    compradores: [
-      { id: 'C-11', nombre: 'Pastor Samuel', cantidad: 4, estadoPago: 'PAGADO', montoAbonado: 60000 },
-      { id: 'C-12', nombre: 'Hna. Camila Ortiz', cantidad: 6, estadoPago: 'PAGADO', montoAbonado: 90000 },
-      { id: 'C-13', nombre: 'Jóvenes Alabanza', cantidad: 5, estadoPago: 'PAGADO', montoAbonado: 75000 },
-      { id: 'C-14', nombre: 'Hno. Esteban Gil', cantidad: 2, estadoPago: 'FIADO', montoAbonado: 10000 },
-    ],
-    montoReportado: 235000,
-    montoRecibido: 0,
-    montoSalida: 0,
-    estado: 'PENDIENTE',
-    notaTesorero: '',
-  },
-  {
-    id: 'REC-105',
-    fecha: new Date().toISOString().split('T')[0],
-    tipo: 'INGRESO',
-    modoRegistro: 'GENERAL',
-    actividad: 'Rifa',
-    descripcion: 'Boletas vendidas rifa de ancheta familiar',
-    responsable: 'Hna. Marta Gómez',
-    metodoPago: 'Transferencia / Nequi',
-    montoReportado: 150000,
-    montoRecibido: 0,
-    montoSalida: 0,
-    estado: 'PENDIENTE',
-    notaTesorero: '',
-  },
-];
+const INITIAL_DATA = [];
 
 const ACTIVIDADES_RECAUDO = [
   'Venta de Comidas',
@@ -237,14 +146,23 @@ const CATEGORIAS_EGRESO = [
 
 export default function App() {
   const [movimientos, setMovimientos] = useState(INITIAL_DATA);
+  const [cargandoNube, setCargandoNube] = useState(true);
 
+  // Sincronización en tiempo real al iniciar cargando desde Supabase
   useEffect(() => {
-    supabase.from('estado_tesoreria').select('datos').eq('id', 1).then(({ data }) => {
-      if (data && data.length > 0 && Array.isArray(data[0].datos) && data[0].datos.length > 0) {
-        setMovimientos(data[0].datos);
-      }
-    });
+    supabase
+      .from('estado_tesoreria')
+      .select('datos')
+      .eq('id', 1)
+      .single()
+      .then(({ data, error }) => {
+        if (data && data.datos) {
+          setMovimientos(Array.isArray(data.datos) ? data.datos : []);
+        }
+        setCargandoNube(false);
+      });
   }, []);
+
   const [pinRecaudador, setPinRecaudador] = useState(() => {
     return localStorage.getItem('pin_recaudador_iglesia') || '2026';
   });
@@ -294,7 +212,7 @@ export default function App() {
   const [solicitudEdicionModal, setSolicitudEdicionModal] = useState(null);
   const [motivoSolicitudEdicion, setMotivoSolicitudEdicion] = useState('');
 
-  const [expandedRows, setExpandedRows] = useState({ 'REC-103': true, 'REC-104': true });
+  const [expandedRows, setExpandedRows] = useState({});
 
   const [tesoreroTab, setTesoreroTab] = useState('BANDEJA');
   const [arqueoItem, setArqueoItem] = useState(null);
@@ -311,15 +229,21 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
- useEffect(() => {
-  try {
-    localStorage.setItem('iglesia_tesoreria_v2', JSON.stringify(movimientos));
-    // Guardamos también en la nube de Supabase en tiempo real
-    supabase.from('estado_tesoreria').update({ datos: movimientos }).eq('id', 1).then(({ error }) => {
-      if (error) console.error('Error al guardar en Supabase:', error);
-    });
-  } catch {}
-}, [movimientos]);
+  // Guardado automático en Supabase cada vez que los movimientos cambian
+  useEffect(() => {
+    if (cargandoNube) return;
+    try {
+      supabase
+        .from('estado_tesoreria')
+        .upsert({ id: 1, datos: movimientos })
+        .then(({ error }) => {
+          if (error) console.error('Error al guardar en Supabase:', error);
+        });
+    } catch (err) {
+      console.error(err);
+    }
+  }, [movimientos, cargandoNube]);
+
   useEffect(() => {
     try {
       localStorage.setItem('pin_recaudador_iglesia', pinRecaudador);
@@ -362,7 +286,6 @@ export default function App() {
 
   const handleBorrarTodoContenido = () => {
     setMovimientos([]);
-    localStorage.removeItem('iglesia_tesoreria_v2');
     setShowBorrarTodoModal(false);
     showToast('Se han borrado todos los registros de la tesorería.', 'warning');
   };
@@ -1109,10 +1032,10 @@ export default function App() {
     showToast('Libro Único exportado a CSV (listo para abrir en Excel).', 'success');
   };
 
-  const handleResetDemo = () => {
-    setMovimientos(INITIAL_DATA);
-    localStorage.setItem('iglesia_tesoreria_v2', JSON.stringify(INITIAL_DATA));
-    showToast('Datos de demostración restaurados.', 'success');
+  const handleRestaurarDemo = () => {
+    // Si quieres borrar la base de datos de Supabase y dejarla vacía o sin demo
+    setMovimientos([]);
+    showToast('Tesorería limpiada correctamente.', 'success');
   };
 
   const movimientosFiltrados = useMemo(() => {
@@ -1701,227 +1624,235 @@ export default function App() {
                       </div>
 
                       <div className="space-y-4">
-                        {movimientos
-                          .filter((m) => m.tipo === 'INGRESO')
-                          .map((item) => {
-                            const inv = calcularResumenInventario(item);
-                            const isExpanded = !!expandedRows[item.id];
+                        {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
+                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            <p className="text-sm font-semibold text-slate-600">
+                              No hay registros de ingresos en la nube todavía. ¡Crea el primero!
+                            </p>
+                          </div>
+                        ) : (
+                          movimientos
+                            .filter((m) => m.tipo === 'INGRESO')
+                            .map((item) => {
+                              const inv = calcularResumenInventario(item);
+                              const isExpanded = !!expandedRows[item.id];
 
-                            return (
-                              <div
-                                key={item.id}
-                                className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-white transition-all"
-                              >
-                                <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                                  <div>
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      <span className="text-xs font-mono font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
-                                        {item.id}
-                                      </span>
-                                      <span className="font-bold text-slate-900 text-sm">
-                                        {item.actividad}
-                                      </span>
-                                      <span className="text-xs text-slate-400">• {item.fecha}</span>
+                              return (
+                                <div
+                                  key={item.id}
+                                  className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-white transition-all"
+                                >
+                                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
+                                    <div>
+                                      <div className="flex items-center gap-2 flex-wrap">
+                                        <span className="text-xs font-mono font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
+                                          {item.id}
+                                        </span>
+                                        <span className="font-bold text-slate-900 text-sm">
+                                          {item.actividad}
+                                        </span>
+                                        <span className="text-xs text-slate-400">• {item.fecha}</span>
+                                      </div>
+                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                      <p className="text-xs font-semibold text-slate-700 mt-1">
+                                        Responsable: {item.responsable} ({item.metodoPago})
+                                      </p>
                                     </div>
-                                    <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
-                                    <p className="text-xs font-semibold text-slate-700 mt-1">
-                                      Responsable: {item.responsable} ({item.metodoPago})
-                                    </p>
+
+                                    <div className="flex sm:flex-col items-end justify-between gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
+                                      <div className="text-right">
+                                        <span className="text-[11px] text-slate-500 block">
+                                          Recaudado en mano:
+                                        </span>
+                                        <span className="text-lg font-extrabold text-slate-900">
+                                          {formatCOP(item.montoReportado)}
+                                        </span>
+                                      </div>
+                                      <div className="flex items-center gap-2 flex-wrap justify-end">
+                                        {item.estado !== 'VERIFICADO' && (
+                                          <>
+                                            {item.edicionAutorizada ? (
+                                              <button
+                                                type="button"
+                                                onClick={() => handleIniciarEdicionRecaudo(item)}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors animate-pulse"
+                                              >
+                                                <Edit3 className="w-3 h-3" />
+                                                Editar (Autorizado)
+                                              </button>
+                                            ) : item.solicitudEdicion ? (
+                                              <span
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"
+                                                title={`Motivo: ${item.motivoEdicion}`}
+                                              >
+                                                <Clock className="w-3 h-3" />
+                                                Esperando permiso Tesorería
+                                              </span>
+                                            ) : (
+                                              <button
+                                                type="button"
+                                                onClick={() => {
+                                                  setSolicitudEdicionModal(item);
+                                                  setMotivoSolicitudEdicion('');
+                                                }}
+                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-800 border border-slate-300 transition-colors"
+                                              >
+                                                <Lock className="w-3 h-3" />
+                                                Solicitar Edición
+                                              </button>
+                                            )}
+                                          </>
+                                        )}
+                                        {renderEstadoBadge(item)}
+                                      </div>
+                                    </div>
                                   </div>
 
-                                  <div className="flex sm:flex-col items-end justify-between gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
-                                    <div className="text-right">
-                                      <span className="text-[11px] text-slate-500 block">
-                                        Recaudado en mano:
-                                      </span>
-                                      <span className="text-lg font-extrabold text-slate-900">
-                                        {formatCOP(item.montoReportado)}
-                                      </span>
-                                    </div>
-                                    <div className="flex items-center gap-2 flex-wrap justify-end">
-                                      {item.estado !== 'VERIFICADO' && (
-                                        <>
-                                          {item.edicionAutorizada ? (
-                                            <button
-                                              type="button"
-                                              onClick={() => handleIniciarEdicionRecaudo(item)}
-                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors animate-pulse"
-                                            >
-                                              <Edit3 className="w-3 h-3" />
-                                              Editar (Autorizado)
-                                            </button>
-                                          ) : item.solicitudEdicion ? (
-                                            <span
-                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"
-                                              title={`Motivo: ${item.motivoEdicion}`}
-                                            >
-                                              <Clock className="w-3 h-3" />
-                                              Esperando permiso Tesorería
-                                            </span>
-                                          ) : (
-                                            <button
-                                              type="button"
-                                              onClick={() => {
-                                                setSolicitudEdicionModal(item);
-                                                setMotivoSolicitudEdicion('');
-                                              }}
-                                              className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-800 border border-slate-300 transition-colors"
-                                            >
-                                              <Lock className="w-3 h-3" />
-                                              Solicitar Edición
-                                            </button>
-                                          )}
-                                        </>
-                                      )}
-                                      {renderEstadoBadge(item)}
-                                    </div>
-                                  </div>
-                                </div>
-
-                                {inv.esUnidades && (
-                                  <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-2.5">
-                                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                                      <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
-                                        <span className="text-slate-400 block">Producidas</span>
-                                        <span className="font-bold text-slate-800">
-                                          {inv.producidas} × {formatCOP(inv.precioUnitario)}
-                                        </span>
+                                  {inv.esUnidades && (
+                                    <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-2.5">
+                                      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
+                                        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                          <span className="text-slate-400 block">Producidas</span>
+                                          <span className="font-bold text-slate-800">
+                                            {inv.producidas} × {formatCOP(inv.precioUnitario)}
+                                          </span>
+                                        </div>
+                                        <div className="bg-emerald-50/70 px-2.5 py-1.5 rounded-lg border border-emerald-200">
+                                          <span className="text-emerald-700 block">
+                                            Recaudado ({inv.unidadesPagadas} pag.)
+                                          </span>
+                                          <span className="font-extrabold text-emerald-900">
+                                            {formatCOP(inv.plataPagada)}
+                                          </span>
+                                        </div>
+                                        <div className="bg-rose-50/70 px-2.5 py-1.5 rounded-lg border border-rose-200">
+                                          <span className="text-rose-700 block">
+                                            Fiados ({inv.unidadesFiadas} unid.)
+                                          </span>
+                                          <span className="font-extrabold text-rose-900">
+                                            {formatCOP(inv.plataFiada)}
+                                          </span>
+                                        </div>
+                                        <div className="bg-amber-50/70 px-2.5 py-1.5 rounded-lg border border-amber-200">
+                                          <span className="text-amber-700 block">
+                                            Sin vender ({inv.unidadesSinVender} unid.)
+                                          </span>
+                                          <span className="font-extrabold text-amber-900">
+                                            {formatCOP(inv.plataSinVender)}
+                                          </span>
+                                        </div>
                                       </div>
-                                      <div className="bg-emerald-50/70 px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                                        <span className="text-emerald-700 block">
-                                          Recaudado ({inv.unidadesPagadas} pag.)
-                                        </span>
-                                        <span className="font-extrabold text-emerald-900">
-                                          {formatCOP(inv.plataPagada)}
-                                        </span>
-                                      </div>
-                                      <div className="bg-rose-50/70 px-2.5 py-1.5 rounded-lg border border-rose-200">
-                                        <span className="text-rose-700 block">
-                                          Fiados ({inv.unidadesFiadas} unid.)
-                                        </span>
-                                        <span className="font-extrabold text-rose-900">
-                                          {formatCOP(inv.plataFiada)}
-                                        </span>
-                                      </div>
-                                      <div className="bg-amber-50/70 px-2.5 py-1.5 rounded-lg border border-amber-200">
-                                        <span className="text-amber-700 block">
-                                          Sin vender ({inv.unidadesSinVender} unid.)
-                                        </span>
-                                        <span className="font-extrabold text-amber-900">
-                                          {formatCOP(inv.plataSinVender)}
-                                        </span>
-                                      </div>
-                                    </div>
 
-                                    {item.compradores && item.compradores.length > 0 && (
-                                      <div>
-                                        <button
-                                          type="button"
-                                          onClick={() => toggleExpandRow(item.id)}
-                                          className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950"
-                                        >
-                                          <Users className="w-3.5 h-3.5" />
-                                          {isExpanded
-                                            ? 'Ocultar lista de compradores y deudores'
-                                            : `Ver compradores, abonos y deudores (${item.compradores.length})`}
-                                          {isExpanded ? (
-                                            <ChevronUp className="w-3.5 h-3.5" />
-                                          ) : (
-                                            <ChevronDown className="w-3.5 h-3.5" />
-                                          )}
-                                        </button>
+                                      {item.compradores && item.compradores.length > 0 && (
+                                        <div>
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleExpandRow(item.id)}
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950"
+                                          >
+                                            <Users className="w-3.5 h-3.5" />
+                                            {isExpanded
+                                              ? 'Ocultar lista de compradores y deudores'
+                                              : `Ver compradores, abonos y deudores (${item.compradores.length})`}
+                                            {isExpanded ? (
+                                              <ChevronUp className="w-3.5 h-3.5" />
+                                            ) : (
+                                              <ChevronDown className="w-3.5 h-3.5" />
+                                            )}
+                                          </button>
 
-                                        {isExpanded && (
-                                          <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
-                                            {item.compradores.map((c) => {
-                                              const totalComp = c.cantidad * inv.precioUnitario;
-                                              const abonoActual =
-                                                c.estadoPago === 'PAGADO'
-                                                  ? totalComp
-                                                  : Math.min(
-                                                      totalComp,
-                                                      Math.max(0, Number(c.montoAbonado) || 0)
-                                                    );
-                                              const saldoPendiente = Math.max(
-                                                0,
-                                                totalComp - abonoActual
-                                              );
+                                          {isExpanded && (
+                                            <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+                                              {item.compradores.map((c) => {
+                                                const totalComp = c.cantidad * inv.precioUnitario;
+                                                const abonoActual =
+                                                  c.estadoPago === 'PAGADO'
+                                                    ? totalComp
+                                                    : Math.min(
+                                                        totalComp,
+                                                        Math.max(0, Number(c.montoAbonado) || 0)
+                                                      );
+                                                const saldoPendiente = Math.max(
+                                                  0,
+                                                  totalComp - abonoActual
+                                                );
 
-                                              return (
-                                                <div
-                                                  key={c.id}
-                                                  className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                                                >
-                                                  <div>
-                                                    <span className="font-bold text-slate-800">
-                                                      {c.nombre}
-                                                    </span>
-                                                    <span className="text-slate-500 ml-1.5">
-                                                      • {c.cantidad} unid. ({formatCOP(totalComp)})
-                                                    </span>
-                                                    {saldoPendiente > 0 && (
-                                                      <div className="text-[11px] mt-0.5 flex flex-wrap gap-2">
-                                                        <span className="text-emerald-700 font-semibold">
-                                                          Abonado: {formatCOP(abonoActual)}
-                                                        </span>
-                                                        <span className="text-rose-700 font-bold">
-                                                          Debe: {formatCOP(saldoPendiente)}
-                                                        </span>
-                                                      </div>
-                                                    )}
-                                                  </div>
+                                                return (
+                                                  <div
+                                                    key={c.id}
+                                                    className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                                                  >
+                                                    <div>
+                                                      <span className="font-bold text-slate-800">
+                                                        {c.nombre}
+                                                      </span>
+                                                      <span className="text-slate-500 ml-1.5">
+                                                        • {c.cantidad} unid. ({formatCOP(totalComp)})
+                                                      </span>
+                                                      {saldoPendiente > 0 && (
+                                                        <div className="text-[11px] mt-0.5 flex flex-wrap gap-2">
+                                                          <span className="text-emerald-700 font-semibold">
+                                                            Abonado: {formatCOP(abonoActual)}
+                                                          </span>
+                                                          <span className="text-rose-700 font-bold">
+                                                            Debe: {formatCOP(saldoPendiente)}
+                                                          </span>
+                                                        </div>
+                                                      )}
+                                                    </div>
 
-                                                  <div className="flex items-center gap-2 self-end sm:self-center">
-                                                    {saldoPendiente > 0 && (
+                                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                                      {saldoPendiente > 0 && (
+                                                        <button
+                                                          type="button"
+                                                          onClick={() => openAbonoModal(item, c)}
+                                                          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-900 hover:bg-indigo-800 text-white shadow-xs transition-all flex items-center gap-1"
+                                                        >
+                                                          <BadgeDollarSign className="w-3 h-3 text-emerald-300" />
+                                                          Abonar
+                                                        </button>
+                                                      )}
                                                       <button
                                                         type="button"
-                                                        onClick={() => openAbonoModal(item, c)}
-                                                        className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-900 hover:bg-indigo-800 text-white shadow-xs transition-all flex items-center gap-1"
+                                                        onClick={() =>
+                                                          handleTogglePagoCompradorExistente(
+                                                            item.id,
+                                                            c.id
+                                                          )
+                                                        }
+                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
+                                                          saldoPendiente === 0
+                                                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                                            : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                                        }`}
                                                       >
-                                                        <BadgeDollarSign className="w-3 h-3 text-emerald-300" />
-                                                        Abonar
+                                                        {saldoPendiente === 0
+                                                          ? 'Pagado ✓'
+                                                          : 'Saldar Todo'}
                                                       </button>
-                                                    )}
-                                                    <button
-                                                      type="button"
-                                                      onClick={() =>
-                                                        handleTogglePagoCompradorExistente(
-                                                          item.id,
-                                                          c.id
-                                                        )
-                                                      }
-                                                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
-                                                        saldoPendiente === 0
-                                                          ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                                          : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
-                                                      }`}
-                                                    >
-                                                      {saldoPendiente === 0
-                                                        ? 'Pagado ✓'
-                                                        : 'Saldar Todo'}
-                                                    </button>
+                                                    </div>
                                                   </div>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        )}
-                                      </div>
-                                    )}
-                                  </div>
-                                )}
+                                                );
+                                              })}
+                                            </div>
+                                          )}
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
 
-                                {item.notaTesorero && (
-                                  <div className="mt-2.5 pt-2 border-t border-slate-200/80 text-xs text-slate-600 flex items-start gap-1.5">
-                                    <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-                                    <span>
-                                      <strong>Nota Tesorería:</strong> {item.notaTesorero}
-                                    </span>
-                                  </div>
-                                )}
-                              </div>
-                            );
-                          })}
+                                  {item.notaTesorero && (
+                                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 text-xs text-slate-600 flex items-start gap-1.5">
+                                      <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
+                                      <span>
+                                        <strong>Nota Tesorería:</strong> {item.notaTesorero}
+                                      </span>
+                                    </div>
+                                  )}
+                                </div>
+                              );
+                            })
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1999,13 +1930,6 @@ export default function App() {
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Borrar Todo
-                    </button>
-                    <button
-                      onClick={handleResetDemo}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-all"
-                    >
-                      <RotateCcw className="w-3.5 h-3.5" />
-                      Restaurar Demo
                     </button>
                     <button
                       onClick={() => setIsTesoreroAuth(false)}
@@ -2586,168 +2510,176 @@ export default function App() {
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-100 text-sm">
-                          {movimientosFiltrados.map((m) => {
-                            const inv = calcularResumenInventario(m);
-                            const isExpanded = !!expandedRows[m.id];
+                          {movimientosFiltrados.length === 0 ? (
+                            <tr>
+                              <td colSpan={8} className="text-center py-10 text-slate-500 text-xs">
+                                No hay movimientos registrados en este momento.
+                              </td>
+                            </tr>
+                          ) : (
+                            movimientosFiltrados.map((m) => {
+                              const inv = calcularResumenInventario(m);
+                              const isExpanded = !!expandedRows[m.id];
 
-                            return (
-                              <React.Fragment key={m.id}>
-                                <tr className="hover:bg-slate-50/80 transition-colors">
-                                  <td className="py-3.5 px-4 whitespace-nowrap">
-                                    <div className="font-semibold text-slate-800 text-xs">
-                                      {m.fecha}
-                                    </div>
-                                    <div className="font-mono text-[11px] text-slate-400">{m.id}</div>
-                                  </td>
-                                  <td className="py-3.5 px-4 max-w-xs">
-                                    <div className="flex items-center gap-1.5 flex-wrap">
-                                      <span className="font-bold text-slate-900 text-xs">
-                                        {m.actividad}
-                                      </span>
-                                      {inv.esUnidades && (
-                                        <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200">
-                                          {inv.unidadesPagadas}/{inv.producidas} unid. pagadas
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div
-                                      className="text-xs text-slate-600 truncate"
-                                      title={m.descripcion}
-                                    >
-                                      {m.descripcion}
-                                    </div>
-                                    {inv.esUnidades && inv.totalUnidadesFaltantes > 0 && (
-                                      <div className="text-[11px] font-semibold text-amber-800 mt-0.5">
-                                        Faltan {inv.totalUnidadesFaltantes} unid. por recoger (
-                                        {formatCOP(inv.totalPlataFaltante)})
+                              return (
+                                <React.Fragment key={m.id}>
+                                  <tr className="hover:bg-slate-50/80 transition-colors">
+                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                      <div className="font-semibold text-slate-800 text-xs">
+                                        {m.fecha}
                                       </div>
-                                    )}
-                                    {inv.esUnidades &&
-                                      m.compradores &&
-                                      m.compradores.length > 0 && (
+                                      <div className="font-mono text-[11px] text-slate-400">{m.id}</div>
+                                    </td>
+                                    <td className="py-3.5 px-4 max-w-xs">
+                                      <div className="flex items-center gap-1.5 flex-wrap">
+                                        <span className="font-bold text-slate-900 text-xs">
+                                          {m.actividad}
+                                        </span>
+                                        {inv.esUnidades && (
+                                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200">
+                                            {inv.unidadesPagadas}/{inv.producidas} unid. pagadas
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div
+                                        className="text-xs text-slate-600 truncate"
+                                        title={m.descripcion}
+                                      >
+                                        {m.descripcion}
+                                      </div>
+                                      {inv.esUnidades && inv.totalUnidadesFaltantes > 0 && (
+                                        <div className="text-[11px] font-semibold text-amber-800 mt-0.5">
+                                          Faltan {inv.totalUnidadesFaltantes} unid. por recoger (
+                                          {formatCOP(inv.totalPlataFaltante)})
+                                        </div>
+                                      )}
+                                      {inv.esUnidades &&
+                                        m.compradores &&
+                                        m.compradores.length > 0 && (
+                                          <button
+                                            type="button"
+                                            onClick={() => toggleExpandRow(m.id)}
+                                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:underline"
+                                          >
+                                            <Users className="w-3 h-3" />
+                                            {isExpanded
+                                              ? 'Ocultar compradores'
+                                              : `Ver ${m.compradores.length} compradores/deudores`}
+                                          </button>
+                                        )}
+                                      {m.notaTesorero && (
+                                        <div className="text-[11px] text-indigo-700 mt-0.5 italic">
+                                          Nota: {m.notaTesorero}
+                                        </div>
+                                      )}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap text-xs font-medium text-slate-700">
+                                      {m.responsable}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs text-slate-500 font-medium">
+                                      {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-emerald-700">
+                                      {m.montoRecibido > 0 ? `+ ${formatCOP(m.montoRecibido)}` : '—'}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-rose-600">
+                                      {m.montoSalida > 0 ? `- ${formatCOP(m.montoSalida)}` : '—'}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap">
+                                      {renderEstadoBadge(m)}
+                                    </td>
+                                    <td className="py-3.5 px-4 whitespace-nowrap text-center">
+                                      {(m.estado === 'PENDIENTE' || m.estado === 'DESCUADRE') && (
                                         <button
-                                          type="button"
-                                          onClick={() => toggleExpandRow(m.id)}
-                                          className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:underline"
+                                          onClick={() => openArqueoModal(m)}
+                                          className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition-colors"
                                         >
-                                          <Users className="w-3 h-3" />
-                                          {isExpanded
-                                            ? 'Ocultar compradores'
-                                            : `Ver ${m.compradores.length} compradores/deudores`}
+                                          Arqueo
                                         </button>
                                       )}
-                                    {m.notaTesorero && (
-                                      <div className="text-[11px] text-indigo-700 mt-0.5 italic">
-                                        Nota: {m.notaTesorero}
-                                      </div>
-                                    )}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap text-xs font-medium text-slate-700">
-                                    {m.responsable}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs text-slate-500 font-medium">
-                                    {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-emerald-700">
-                                    {m.montoRecibido > 0 ? `+ ${formatCOP(m.montoRecibido)}` : '—'}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-rose-600">
-                                    {m.montoSalida > 0 ? `- ${formatCOP(m.montoSalida)}` : '—'}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap">
-                                    {renderEstadoBadge(m)}
-                                  </td>
-                                  <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                                    {(m.estado === 'PENDIENTE' || m.estado === 'DESCUADRE') && (
-                                      <button
-                                        onClick={() => openArqueoModal(m)}
-                                        className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition-colors"
-                                      >
-                                        Arqueo
-                                      </button>
-                                    )}
-                                  </td>
-                                </tr>
+                                    </td>
+                                  </tr>
 
-                                {inv.esUnidades &&
-                                  isExpanded &&
-                                  m.compradores &&
-                                  m.compradores.length > 0 && (
-                                    <tr className="bg-indigo-50/40">
-                                      <td colSpan={8} className="px-6 py-3">
-                                        <div className="bg-white rounded-xl border border-indigo-100 p-3">
-                                          <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-100 text-xs">
-                                            <span className="font-bold text-indigo-950">
-                                              Detalle de Inventario y Compradores — {m.actividad} (
-                                              {inv.producidas} producidas ×{' '}
-                                              {formatCOP(inv.precioUnitario)})
-                                            </span>
-                                            <div className="flex gap-3 text-[11px] font-bold">
-                                              <span className="text-emerald-700">
-                                                Pagadas: {inv.unidadesPagadas} (
-                                                {formatCOP(inv.plataPagada)})
+                                  {inv.esUnidades &&
+                                    isExpanded &&
+                                    m.compradores &&
+                                    m.compradores.length > 0 && (
+                                      <tr className="bg-indigo-50/40">
+                                        <td colSpan={8} className="px-6 py-3">
+                                          <div className="bg-white rounded-xl border border-indigo-100 p-3">
+                                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-100 text-xs">
+                                              <span className="font-bold text-indigo-950">
+                                                Detalle de Inventario y Compradores — {m.actividad} (
+                                                {inv.producidas} producidas ×{' '}
+                                                {formatCOP(inv.precioUnitario)})
                                               </span>
-                                              <span className="text-rose-700">
-                                                Fiadas: {inv.unidadesFiadas} (
-                                                {formatCOP(inv.plataFiada)})
-                                              </span>
-                                              <span className="text-amber-700">
-                                                Sin vender: {inv.unidadesSinVender} (
-                                                {formatCOP(inv.plataSinVender)})
-                                              </span>
+                                              <div className="flex gap-3 text-[11px] font-bold">
+                                                <span className="text-emerald-700">
+                                                  Pagadas: {inv.unidadesPagadas} (
+                                                  {formatCOP(inv.plataPagada)})
+                                                </span>
+                                                <span className="text-rose-700">
+                                                  Fiadas: {inv.unidadesFiadas} (
+                                                  {formatCOP(inv.plataFiada)})
+                                                </span>
+                                                <span className="text-amber-700">
+                                                  Sin vender: {inv.unidadesSinVender} (
+                                                  {formatCOP(inv.plataSinVender)})
+                                                </span>
+                                              </div>
+                                            </div>
+                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
+                                              {m.compradores.map((c) => {
+                                                const totalC = c.cantidad * inv.precioUnitario;
+                                                const abonoC =
+                                                  c.estadoPago === 'PAGADO'
+                                                    ? totalC
+                                                    : Math.min(
+                                                        totalC,
+                                                        Math.max(0, Number(c.montoAbonado) || 0)
+                                                      );
+                                                const saldoC = Math.max(0, totalC - abonoC);
+
+                                                return (
+                                                  <div
+                                                    key={c.id}
+                                                    className="flex items-center justify-between px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50/70 text-xs"
+                                                  >
+                                                    <div>
+                                                      <span className="font-bold text-slate-800">
+                                                        {c.nombre}
+                                                      </span>
+                                                      <span className="text-slate-500 block text-[11px]">
+                                                        {c.cantidad} unid. ({formatCOP(totalC)})
+                                                      </span>
+                                                      {saldoC > 0 && abonoC > 0 && (
+                                                        <span className="text-[10px] font-bold text-indigo-700 block">
+                                                          Abonó: {formatCOP(abonoC)} | Debe:{' '}
+                                                          {formatCOP(saldoC)}
+                                                        </span>
+                                                      )}
+                                                    </div>
+                                                    <span
+                                                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
+                                                        saldoC === 0
+                                                          ? 'bg-emerald-100 text-emerald-800'
+                                                          : 'bg-rose-100 text-rose-800'
+                                                      }`}
+                                                    >
+                                                      {saldoC === 0 ? 'PAGADO' : 'FIADO'}
+                                                    </span>
+                                                  </div>
+                                                );
+                                              })}
                                             </div>
                                           </div>
-                                          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                            {m.compradores.map((c) => {
-                                              const totalC = c.cantidad * inv.precioUnitario;
-                                              const abonoC =
-                                                c.estadoPago === 'PAGADO'
-                                                  ? totalC
-                                                  : Math.min(
-                                                      totalC,
-                                                      Math.max(0, Number(c.montoAbonado) || 0)
-                                                    );
-                                              const saldoC = Math.max(0, totalC - abonoC);
-
-                                              return (
-                                                <div
-                                                  key={c.id}
-                                                  className="flex items-center justify-between px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50/70 text-xs"
-                                                >
-                                                  <div>
-                                                    <span className="font-bold text-slate-800">
-                                                      {c.nombre}
-                                                    </span>
-                                                    <span className="text-slate-500 block text-[11px]">
-                                                      {c.cantidad} unid. ({formatCOP(totalC)})
-                                                    </span>
-                                                    {saldoC > 0 && abonoC > 0 && (
-                                                      <span className="text-[10px] font-bold text-indigo-700 block">
-                                                        Abonó: {formatCOP(abonoC)} | Debe:{' '}
-                                                        {formatCOP(saldoC)}
-                                                      </span>
-                                                    )}
-                                                  </div>
-                                                  <span
-                                                    className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                                      saldoC === 0
-                                                        ? 'bg-emerald-100 text-emerald-800'
-                                                        : 'bg-rose-100 text-rose-800'
-                                                    }`}
-                                                  >
-                                                    {saldoC === 0 ? 'PAGADO' : 'FIADO'}
-                                                  </span>
-                                                </div>
-                                              );
-                                            })}
-                                          </div>
-                                        </div>
-                                      </td>
-                                    </tr>
-                                  )}
-                              </React.Fragment>
-                            );
-                          })}
+                                        </td>
+                                      </tr>
+                                    )}
+                                </React.Fragment>
+                              );
+                            })
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -3078,7 +3010,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
                   Observación / Nota de Tesorería
                 </label>
                 <textarea
