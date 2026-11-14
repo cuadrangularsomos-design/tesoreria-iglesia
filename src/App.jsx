@@ -40,8 +40,7 @@ import {
   ChevronUp,
   BadgeDollarSign,
   ShoppingBag,
-  KeyRound,
-  Calendar
+  KeyRound
 } from 'lucide-react';
 
 const formatCOP = (value) => {
@@ -248,7 +247,6 @@ export default function App() {
   const [arqueoItem, setArqueoItem] = useState(null);
   const [montoFisicoContado, setMontoFisicoContado] = useState('');
   const [notaArqueo, setNotaArqueo] = useState('');
-  const [descuadreItemModal, setDescuadreItemModal] = useState(null);
 
   const [egrFecha, setEgrFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [egrCategoria, setEgrCategoria] = useState('Insumos Cocina');
@@ -329,18 +327,23 @@ export default function App() {
       precio,
       totalEsperado,
       unidadesPagadas,
+      plataPagada,
       unidadesFiadas,
-      unidadesAsignadas,
-      unidadesSinVender,
-      plataRecaudada,
       plataFiada,
+      unidadesSinVender,
       plataSinVender,
       totalUnidadesFaltantes,
       totalPlataFaltante,
+      agotado: unidadesSinVender === 0,
     };
   }, [recCantidadProducida, recPrecioUnitario, recCompradores]);
 
   const handleAgregarCompradorForm = () => {
+    if (resumenFormUnidades.agotado) {
+      showToast('¡Inventario agotado! No quedan unidades disponibles para vender o fiar.', 'error');
+      return;
+    }
+
     const nombre = nuevoCompNombre.trim();
     const cant = Number(nuevoCompCantidad) || 0;
     const producidas = Number(recCantidadProducida) || 0;
@@ -355,8 +358,8 @@ export default function App() {
       showToast('Cantidad inválida.', 'error');
       return;
     }
-    if (producidas > 0 && resumenFormUnidades.unidadesAsignadas + cant > producidas) {
-      showToast(`Supera las unidades producidas (${resumenFormUnidades.unidadesSinVender} restantes).`, 'error');
+    if (resumenFormUnidades.unidadesAsignadas + cant > producidas) {
+      showToast(`Solo quedan ${resumenFormUnidades.unidadesSinVender} unidades disponibles.`, 'error');
       return;
     }
 
@@ -563,7 +566,7 @@ export default function App() {
       setRecMonto(String(item.montoReportado));
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast('Modo edición activado.');
+    showToast('Modo edición activado. Puedes modificar compradores, deudas y abonos.');
   };
 
   const handleEnviarSolicitudEdicion = (e) => {
@@ -708,7 +711,6 @@ export default function App() {
     showToast('Estado de pago actualizado.');
   };
 
-  // KPIs
   const kpis = useMemo(() => {
     let totalEntradasVerificadas = 0;
     let totalSalidas = 0;
@@ -1225,6 +1227,13 @@ export default function App() {
                               </div>
                             </div>
 
+                            {/* AVISO SI ESTÁ AGOTADO */}
+                            {resumenFormUnidades.agotado && (
+                              <div className="bg-rose-100 border border-rose-300 text-rose-900 px-3 py-2 rounded-xl text-xs font-bold text-center animate-pulse">
+                                ⚠️ ¡Inventario Agotado! No quedan unidades disponibles para vender o fiar.
+                              </div>
+                            )}
+
                             {/* SECCION COMPRADORES */}
                             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
                               <div className="flex items-center justify-between">
@@ -1241,19 +1250,22 @@ export default function App() {
                                   placeholder="Nombre persona..."
                                   value={nuevoCompNombre}
                                   onChange={(e) => setNuevoCompNombre(e.target.value)}
-                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs"
+                                  disabled={resumenFormUnidades.agotado}
+                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs disabled:bg-slate-100"
                                 />
                                 <input
                                   type="number"
                                   min="1"
                                   value={nuevoCompCantidad}
                                   onChange={(e) => setNuevoCompCantidad(e.target.value)}
-                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center"
+                                  disabled={resumenFormUnidades.agotado}
+                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center disabled:bg-slate-100"
                                 />
                                 <select
                                   value={nuevoCompEstado}
                                   onChange={(e) => setNuevoCompEstado(e.target.value)}
-                                  className="col-span-3 px-1 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                                  disabled={resumenFormUnidades.agotado}
+                                  className="col-span-3 px-1 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold disabled:bg-slate-100"
                                 >
                                   <option value="PAGADO">Pagado</option>
                                   <option value="FIADO">Fiado</option>
@@ -1261,13 +1273,15 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={handleAgregarCompradorForm}
-                                  className="col-span-2 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg flex items-center justify-center transition-all"
+                                  disabled={resumenFormUnidades.agotado}
+                                  className="col-span-2 bg-indigo-950 hover:bg-indigo-900 disabled:bg-slate-300 text-white rounded-lg flex items-center justify-center transition-all"
+                                  title="Agregar persona"
                                 >
                                   <UserPlus className="w-4 h-4" />
                                 </button>
                               </div>
 
-                              {nuevoCompEstado === 'FIADO' && (
+                              {nuevoCompEstado === 'FIADO' && !resumenFormUnidades.agotado && (
                                 <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
                                   <label className="text-[11px] font-bold text-amber-900">Abono inicial ($):</label>
                                   <input
@@ -1285,7 +1299,7 @@ export default function App() {
                                 <div className="max-h-40 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200">
                                   {recCompradores.map((c) => {
                                     const totalC = c.cantidad * resumenFormUnidades.precio;
-                                    const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                    const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
                                     const saldoC = Math.max(0, totalC - abonoC);
 
                                     return (
@@ -1503,7 +1517,7 @@ export default function App() {
                                             <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-2 space-y-2">
                                               {item.compradores.map((c) => {
                                                 const totalComp = c.cantidad * inv.precioUnitario;
-                                                const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : Math.min(totalComp, Number(c.montoAbonado) || 0);
+                                                const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
                                                 const saldoPendiente = Math.max(0, totalComp - abonoActual);
 
                                                 return (
@@ -1634,7 +1648,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => setIsTesoreroAuth(false)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
                       Cerrar Sesión
@@ -1740,7 +1754,6 @@ export default function App() {
                 {/* BANDEJA DE RECEPCIÓN Y ARQUEOS */}
                 {tesoreroTab === 'BANDEJA' && (
                   <div className="space-y-6">
-                    {/* SOLICITUDES DE EDICIÓN */}
                     {kpis.cantidadSolicitudesEdicion > 0 && (
                       <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5 shadow-sm">
                         <h3 className="font-bold text-indigo-950 text-sm mb-3 flex items-center gap-2">
@@ -2092,7 +2105,6 @@ export default function App() {
                                       </span>
                                     )}
 
-                                    {/* LISTA COMPRADORES EN EL LIBRO SI ES UNIDADES */}
                                     {inv.esUnidades && m.compradores && m.compradores.length > 0 && (
                                       <div className="mt-2 pt-2 border-t border-slate-100">
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
@@ -2267,14 +2279,38 @@ export default function App() {
       {arqueoItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Efectivo</h3>
+            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Recaudo</h3>
             <p className="text-xs text-slate-600">
-              Actividad: <strong>{arqueoItem.actividad}</strong> ({arqueoItem.responsable})<br />
-              Reportado en mano: <span className="font-bold text-indigo-900">{formatCOP(arqueoItem.montoReportado)}</span>
+              Registro: <strong>{arqueoItem.id}</strong> • {arqueoItem.fecha}<br />
+              <strong>{arqueoItem.actividad} — {arqueoItem.responsable}</strong><br />
+              <span className="text-slate-500">{arqueoItem.descripcion}</span>
             </p>
-            <form onSubmit={handleConfirmarArqueo}>
-              <div className="mb-3">
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Físico Contado ($)</label>
+
+            {calcularResumenInventario(arqueoItem).esUnidades && (
+              <div className="grid grid-cols-3 gap-2 text-center text-xs">
+                <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
+                  <span className="text-[10px] font-bold text-emerald-800 block">Pagadas</span>
+                  <span className="font-bold text-emerald-950">{calcularResumenInventario(arqueoItem).unidadesPagadas} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataPagada)})</span>
+                </div>
+                <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl">
+                  <span className="text-[10px] font-bold text-rose-800 block">Fiadas</span>
+                  <span className="font-bold text-rose-950">{calcularResumenInventario(arqueoItem).unidadesFiadas} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataFiada)})</span>
+                </div>
+                <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl">
+                  <span className="text-[10px] font-bold text-amber-800 block">Sin vender</span>
+                  <span className="font-bold text-amber-950">{calcularResumenInventario(arqueoItem).unidadesSinVender} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataSinVender)})</span>
+                </div>
+              </div>
+            )}
+
+            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
+              <span className="font-bold text-slate-700">Monto Reportado en Mano por Recaudador:</span>
+              <span className="font-extrabold text-slate-900 text-base">{formatCOP(arqueoItem.montoReportado)}</span>
+            </div>
+
+            <form onSubmit={handleConfirmarArqueo} className="space-y-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Monto Físico Contado por el Tesorero ($)</label>
                 <input
                   type="number"
                   min="0"
@@ -2286,18 +2322,30 @@ export default function App() {
                   autoFocus
                 />
               </div>
-              <div className="mb-4">
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nota u Observación de Tesorería</label>
+
+              {Number(montoFisicoContado || 0) === Number(arqueoItem.montoReportado) ? (
+                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2 rounded-xl text-xs font-bold text-center">
+                  ✅ ¡Cuadre exacto! El dinero coincide 100% con lo reportado.
+                </div>
+              ) : (
+                <div className="bg-rose-50 border border-rose-200 text-rose-800 px-3 py-2 rounded-xl text-xs font-bold text-center">
+                  ⚠️ Descuadre de {formatCOP(Math.abs(Number(arqueoItem.montoReportado) - Number(montoFisicoContado || 0)))}. Se generará una novedad en revisión.
+                </div>
+              )}
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Observación / Nota de Tesorería</label>
                 <textarea
                   rows={2}
-                  placeholder="Ej. Dinero contado exacto en sobre sellado..."
+                  placeholder="Ej. Conteo exacto en sobre sellado..."
                   value={notaArqueo}
                   onChange={(e) => setNotaArqueo(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white"
                 />
               </div>
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
                 <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Confirmar y Recibir</button>
               </div>
             </form>
