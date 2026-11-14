@@ -1,3 +1,8 @@
+import { createClient } from '@supabase/supabase-js'
+
+const supabaseUrl = 'https://nymwaxuzfyclynucwavr.supabase.co'
+const supabaseKey = 'sb_publishable_EPQQAp7s9TRI0Qa0bBMxLQ_62mefp-a'
+const supabase = createClient(supabaseUrl, supabaseKey)
 import React, { useState, useEffect, useMemo } from 'react';
 import {
   Wallet,
@@ -231,15 +236,15 @@ const CATEGORIAS_EGRESO = [
 ];
 
 export default function App() {
-  const [movimientos, setMovimientos] = useState(() => {
-    try {
-      const saved = localStorage.getItem('iglesia_tesoreria_v2');
-      return saved ? JSON.parse(saved) : INITIAL_DATA;
-    } catch {
-      return INITIAL_DATA;
-    }
-  });
+  const [movimientos, setMovimientos] = useState(INITIAL_DATA);
 
+  useEffect(() => {
+    supabase.from('estado_tesoreria').select('datos').eq('id', 1).then(({ data }) => {
+      if (data && data.length > 0 && Array.isArray(data[0].datos) && data[0].datos.length > 0) {
+        setMovimientos(data[0].datos);
+      }
+    });
+  }, []);
   const [pinRecaudador, setPinRecaudador] = useState(() => {
     return localStorage.getItem('pin_recaudador_iglesia') || '2026';
   });
@@ -306,12 +311,15 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
-  useEffect(() => {
-    try {
-      localStorage.setItem('iglesia_tesoreria_v2', JSON.stringify(movimientos));
-    } catch {}
-  }, [movimientos]);
-
+ useEffect(() => {
+  try {
+    localStorage.setItem('iglesia_tesoreria_v2', JSON.stringify(movimientos));
+    // Guardamos también en la nube de Supabase en tiempo real
+    supabase.from('estado_tesoreria').update({ datos: movimientos }).eq('id', 1).then(({ error }) => {
+      if (error) console.error('Error al guardar en Supabase:', error);
+    });
+  } catch {}
+}, [movimientos]);
   useEffect(() => {
     try {
       localStorage.setItem('pin_recaudador_iglesia', pinRecaudador);
