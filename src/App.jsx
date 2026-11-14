@@ -18,14 +18,18 @@ import {
   Lock,
   Unlock,
   Download,
+  RotateCcw,
   Search,
   Filter,
   Receipt,
   Calculator,
+  UserCheck,
+  ArrowUpRight,
   ArrowDownRight,
   X,
   FileSpreadsheet,
   Info,
+  CreditCard,
   Banknote,
   Edit3,
   Package,
@@ -148,25 +152,20 @@ export default function App() {
 
   // Cargar datos y PINs desde Supabase al iniciar + Escuchar cambios en TIEMPO REAL
   useEffect(() => {
-    const fetchData = () => {
-      supabase
-        .from('estado_tesoreria')
-        .select('datos, pin_rec, pin_tes')
-        .eq('id', 1)
-        .single()
-        .then(({ data }) => {
-          if (data) {
-            if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
-            if (data.pin_rec) setPinRecaudador(data.pin_rec);
-            if (data.pin_tes) setPinTesorero(data.pin_tes);
-          }
-          setCargandoNube(false);
-        });
-    };
+    supabase
+      .from('estado_tesoreria')
+      .select('datos, pin_rec, pin_tes')
+      .eq('id', 1)
+      .single()
+      .then(({ data }) => {
+        if (data) {
+          if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
+          if (data.pin_rec) setPinRecaudador(data.pin_rec);
+          if (data.pin_tes) setPinTesorero(data.pin_tes);
+        }
+        setCargandoNube(false);
+      });
 
-    fetchData();
-
-    // Suscripción en tiempo real a Supabase (Realtime)
     const canalRealtime = supabase
       .channel('cambios_tesoreria')
       .on(
@@ -248,7 +247,7 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
-  // Guardado automático en Supabase de movimientos y PINs
+  // Función de guardado inmediato en Supabase
   const guardarEnNube = (nuevosMovs, nuevoPinR, nuevoPinT) => {
     if (cargandoNube) return;
     try {
@@ -355,7 +354,7 @@ export default function App() {
         setEditingRecaudoId(null);
         setRecDescripcion('');
         setRecCompradores([]);
-        showToast('Recaudo modificado y actualizado en la nube.', 'success');
+        showToast('Recaudo modificado y actualizado. El permiso de edición se ha cerrado.', 'success');
         return;
       }
 
@@ -385,7 +384,12 @@ export default function App() {
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
       setRecDescripcion('');
       setRecCompradores([]);
-      showToast('Actividad registrada y sincronizada en tiempo real.', 'success');
+      showToast(
+        `Actividad registrada: ${formatCOP(valorRecaudadoEnMano)} recaudados en mano y ${formatCOP(
+          resumenFormUnidades.totalPlataFaltante
+        )} pendientes en calle.`,
+        'success'
+      );
       return;
     }
 
@@ -421,7 +425,7 @@ export default function App() {
       setEditingRecaudoId(null);
       setRecDescripcion('');
       setRecMonto('');
-      showToast('Recaudo general modificado y sincronizado.', 'success');
+      showToast('Recaudo general modificado. El permiso de edición se ha cerrado.', 'success');
       return;
     }
 
@@ -446,12 +450,12 @@ export default function App() {
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     setRecDescripcion('');
     setRecMonto('');
-    showToast('Recaudo registrado y enviado a Tesorería.', 'success');
+    showToast('Recaudo registrado y enviado a Tesorería (Pendiente por recoger).', 'success');
   };
 
   const handleIniciarEdicionRecaudo = (item) => {
     if (item.estado === 'VERIFICADO') {
-      showToast('Este recaudo ya fue recibido por Tesorería; no se puede editar.', 'warning');
+      showToast('Este recaudo ya fue recibido y verificado por Tesorería; no se puede editar.', 'warning');
       return;
     }
     if (!item.edicionAutorizada) {
@@ -477,7 +481,7 @@ export default function App() {
       setRecCompradores([]);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast('Editando registro. Realiza los cambios y guarda.', 'success');
+    showToast(`Editando registro ${item.id}. Realiza los cambios y presiona "Guardar Cambios".`, 'success');
   };
 
   const handleCancelarEdicionRecaudo = () => {
@@ -493,7 +497,7 @@ export default function App() {
 
     const motivo = motivoSolicitudEdicion.trim();
     if (!motivo) {
-      showToast('Escribe brevemente qué dato necesitas corregir.', 'error');
+      showToast('Escribe brevemente qué dato necesitas corregir para que Tesorería lo autorice.', 'error');
       return;
     }
 
@@ -522,15 +526,17 @@ export default function App() {
             edicionAutorizada: aprobar,
             solicitudEdicion: false,
             notaTesorero: aprobar
-              ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada por Tesorería]`
-              : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Solicitud rechazada por Tesorería]`,
+              ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada por Tesorería: ${m.motivoEdicion || 'Corrección solicitada'}]`
+              : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Solicitud de edición rechazada por Tesorería]`,
           }
         : m
     );
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     showToast(
-      aprobar ? `Edición autorizada para ${item.id}.` : `Solicitud rechazada para ${item.id}.`,
+      aprobar
+        ? `Edición autorizada para ${item.id}. La recaudadora ya puede corregirlo.`
+        : `Solicitud de edición rechazada para ${item.id}.`,
       aprobar ? 'success' : 'warning'
     );
   };
@@ -593,15 +599,18 @@ export default function App() {
     const totalComp = cant * precio;
 
     if (!nombre) {
-      showToast('Escribe el nombre de la persona.', 'error');
+      showToast('Escribe el nombre de la persona que compró o pidió fiado.', 'error');
       return;
     }
     if (cant <= 0) {
-      showToast('La cantidad debe ser mayor a 0.', 'error');
+      showToast('La cantidad de unidades debe ser mayor a 0.', 'error');
       return;
     }
     if (producidas > 0 && resumenFormUnidades.unidadesAsignadas + cant > producidas) {
-      showToast(`No puedes asignar ${cant} unidades. Quedan ${resumenFormUnidades.unidadesSinVender} disponibles.`, 'error');
+      showToast(
+        `No puedes asignar ${cant} unidades. Solo quedan ${resumenFormUnidades.unidadesSinVender} disponibles de las ${producidas} producidas.`,
+        'error'
+      );
       return;
     }
 
@@ -726,7 +735,7 @@ export default function App() {
 
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado y sincronizado.`, 'success');
+    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado correctamente.`, 'success');
     setAbonoModal(null);
     setValorAbonoInput('');
   };
@@ -765,7 +774,7 @@ export default function App() {
 
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast('Estado de pago actualizado en tiempo real.', 'success');
+    showToast('Estado de pago del comprador actualizado.', 'success');
   };
 
   const kpis = useMemo(() => {
@@ -840,7 +849,7 @@ export default function App() {
       setRecPinInput('');
       showToast('Acceso concedido al módulo de Recaudadores', 'success');
     } else {
-      setRecPinError('Clave incorrecta.');
+      setRecPinError('Contraseña incorrecta.');
     }
   };
 
@@ -852,7 +861,7 @@ export default function App() {
       setPinInput('');
       showToast('Acceso concedido al Libro Único de Tesorería', 'success');
     } else {
-      setPinError('Clave incorrecta.');
+      setPinError('Contraseña incorrecta.');
     }
   };
 
@@ -893,9 +902,9 @@ export default function App() {
     setArqueoItem(null);
 
     if (esExacto) {
-      showToast('Dinero recibido, verificado y sincronizado.', 'success');
+      showToast('Dinero recibido, verificado y registrado en Caja con éxito.', 'success');
     } else {
-      showToast('Arqueo guardado con DESCUADRE.', 'warning');
+      showToast('Arqueo guardado con DESCUADRE. Queda en revisión.', 'warning');
     }
   };
 
@@ -906,7 +915,7 @@ export default function App() {
           ...m,
           montoReportado: m.montoRecibido,
           estado: 'VERIFICADO',
-          notaTesorero: `${m.notaTesorero} | [Descuadre aclarado y cerrado]`,
+          notaTesorero: `${m.notaTesorero} | [Descuadre aclarado y cerrado por Tesorería]`,
         };
       }
       return m;
@@ -920,7 +929,7 @@ export default function App() {
     e.preventDefault();
     const valor = Number(egrMonto.toString().replace(/\D/g, ''));
     if (!egrConcepto.trim() || !egrResponsable.trim() || valor <= 0) {
-      showToast('Completa todos los campos del gasto.', 'error');
+      showToast('Completa todos los campos obligatorios del gasto.', 'error');
       return;
     }
 
@@ -945,7 +954,7 @@ export default function App() {
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
-    showToast(`Salida por ${formatCOP(valor)} registrada y sincronizada.`, 'success');
+    showToast(`Salida de caja por ${formatCOP(valor)} registrada correctamente.`, 'success');
     setTesoreroTab('LIBRO');
   };
 
@@ -990,7 +999,7 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Libro exportado a CSV.', 'success');
+    showToast('Libro exportado a CSV exitosamente.', 'success');
   };
 
   const movimientosFiltrados = useMemo(() => {
@@ -1087,7 +1096,7 @@ export default function App() {
                   Tesorería & Recaudos Eclesiásticos
                 </h1>
                 <p className="text-xs text-indigo-200">
-                  Sincronizado en tiempo real por Supabase
+                  Sistema de control financiero transparente y sincronizado
                 </p>
               </div>
             </div>
@@ -1102,7 +1111,7 @@ export default function App() {
                 }`}
               >
                 {isRecaudadorAuth ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                <span>Soy Recaudador</span>
+                <span>Módulo Recaudador</span>
               </button>
 
               <button
@@ -1135,7 +1144,7 @@ export default function App() {
                   <HandCoins className="w-8 h-8" />
                 </div>
                 <h2 className="text-xl font-bold text-slate-900">Acceso Recaudadores</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa tu PIN de recaudador.</p>
+                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de seguridad para registrar recaudos.</p>
 
                 <form onSubmit={handleRecaudadorLogin} className="mt-6 space-y-4">
                   <div>
@@ -1156,7 +1165,7 @@ export default function App() {
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
                   >
-                    Ingresar
+                    Ingresar al Módulo
                   </button>
                 </form>
               </div>
@@ -1165,7 +1174,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Recaudador Activo</span>
+                    <span className="text-sm font-bold text-slate-800">Recaudador Autorizado en Línea</span>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1175,7 +1184,7 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar Contraseña
+                      Cambiar PIN de Acceso
                     </button>
                     <button
                       type="button"
@@ -1183,7 +1192,7 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      Bloquear
+                      Cerrar Sesión
                     </button>
                   </div>
                 </div>
@@ -1204,7 +1213,7 @@ export default function App() {
                               <PlusCircle className="w-5 h-5 text-emerald-400" />
                             )}
                             <h2 className="font-bold text-base">
-                              {editingRecaudoId ? 'Modificar Recaudo' : 'Registrar Recaudo'}
+                              {editingRecaudoId ? 'Modificar Registro de Recaudo' : 'Registrar Nuevo Recaudo'}
                             </h2>
                           </div>
                           {editingRecaudoId && (
@@ -1231,7 +1240,7 @@ export default function App() {
                             }`}
                           >
                             <Package className="w-3.5 h-3.5" />
-                            Por Unidades
+                            Por Unidades (Tamales/Bollos)
                           </button>
                           <button
                             type="button"
@@ -1263,7 +1272,7 @@ export default function App() {
 
                           <div>
                             <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Actividad
+                              Actividad / Evento
                             </label>
                             <select
                               value={recActividad}
@@ -1281,12 +1290,12 @@ export default function App() {
 
                         <div>
                           <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Nombre del Recaudador
+                            Nombre del Recaudador Responsable
                           </label>
                           <input
                             type="text"
                             required
-                            placeholder="Ej. Hna. Marta"
+                            placeholder="Ej. Hna. Marta Gómez"
                             value={recNombre}
                             onChange={(e) => setRecNombre(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
@@ -1324,7 +1333,7 @@ export default function App() {
                                 />
                               </div>
                               <div className="col-span-2 flex items-center justify-between pt-2 border-t border-indigo-200 text-xs">
-                                <span className="font-semibold text-indigo-900">Total Esperado:</span>
+                                <span className="font-semibold text-indigo-900">Total Esperado en Venta:</span>
                                 <span className="font-extrabold text-indigo-950 text-sm">
                                   {formatCOP(resumenFormUnidades.totalEsperado)}
                                 </span>
@@ -1338,7 +1347,7 @@ export default function App() {
                                   Compradores y Deudores
                                 </span>
                                 <span className="text-[11px] font-semibold text-slate-500">
-                                  Quedan {resumenFormUnidades.unidadesSinVender} libres
+                                  Disponibles: {resumenFormUnidades.unidadesSinVender}
                                 </span>
                               </div>
 
@@ -1369,7 +1378,8 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={handleAgregarCompradorForm}
-                                  className="col-span-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center"
+                                  className="col-span-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center transition-all"
+                                  title="Agregar persona"
                                 >
                                   <UserPlus className="w-4 h-4" />
                                 </button>
@@ -1377,7 +1387,7 @@ export default function App() {
 
                               {nuevoCompEstado === 'FIADO' && (
                                 <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                                  <label className="text-[11px] font-bold text-amber-900">Abono ($):</label>
+                                  <label className="text-[11px] font-bold text-amber-900">Abono inicial ($):</label>
                                   <input
                                     type="number"
                                     min="0"
@@ -1435,7 +1445,7 @@ export default function App() {
                         ) : (
                           <div>
                             <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Valor Total ($)
+                              Valor Total Recaudado ($)
                             </label>
                             <input
                               type="number"
@@ -1452,11 +1462,11 @@ export default function App() {
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
                             <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Detalle
+                              Descripción / Detalle
                             </label>
                             <input
                               type="text"
-                              placeholder="Opcional..."
+                              placeholder="Ej. Ofrenda culto dominical..."
                               value={recDescripcion}
                               onChange={(e) => setRecDescripcion(e.target.value)}
                               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
@@ -1465,7 +1475,7 @@ export default function App() {
 
                           <div>
                             <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Método
+                              Método de Pago
                             </label>
                             <select
                               value={recMetodo}
@@ -1484,7 +1494,7 @@ export default function App() {
                             editingRecaudoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
                           }`}
                         >
-                          {editingRecaudoId ? 'Guardar Cambios' : 'Enviar Recaudo'}
+                          {editingRecaudoId ? 'Guardar Cambios del Recaudo' : 'Registrar y Enviar a Tesorería'}
                         </button>
                       </form>
                     </div>
@@ -1502,7 +1512,7 @@ export default function App() {
                       <div className="space-y-4">
                         {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">No hay registros aún.</p>
+                            <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía.</p>
                           </div>
                         ) : (
                           movimientos
@@ -1524,7 +1534,7 @@ export default function App() {
                                       </div>
                                       <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
                                       <p className="text-xs font-semibold text-slate-700 mt-1">
-                                        Resp: {item.responsable} ({item.metodoPago})
+                                        Responsable: {item.responsable} ({item.metodoPago})
                                       </p>
                                     </div>
 
@@ -1554,7 +1564,7 @@ export default function App() {
                                                   setSolicitudEdicionModal(item);
                                                   setMotivoSolicitudEdicion('');
                                                 }}
-                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300"
+                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200"
                                               >
                                                 Solicitar Edición
                                               </button>
@@ -1592,10 +1602,10 @@ export default function App() {
                                           <button
                                             type="button"
                                             onClick={() => toggleExpandRow(item.id)}
-                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800"
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950"
                                           >
                                             <Users className="w-3.5 h-3.5" />
-                                            {isExpanded ? 'Ocultar compradores' : `Ver compradores (${item.compradores.length})`}
+                                            {isExpanded ? 'Ocultar lista de compradores' : `Ver compradores (${item.compradores.length})`}
                                           </button>
 
                                           {isExpanded && (
@@ -1621,7 +1631,7 @@ export default function App() {
                                                         <button
                                                           type="button"
                                                           onClick={() => openAbonoModal(item, c)}
-                                                          className="px-2 py-1 rounded bg-indigo-900 text-white text-[10px] font-bold"
+                                                          className="px-2 py-1 rounded bg-indigo-900 text-white text-[10px] font-bold hover:bg-indigo-800"
                                                         >
                                                           Abonar
                                                         </button>
@@ -1666,7 +1676,7 @@ export default function App() {
                   <ShieldCheck className="w-8 h-8" />
                 </div>
                 <h2 className="text-xl font-bold text-slate-900">Acceso Tesorería</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería.</p>
+                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería para administrar fondos y libros.</p>
 
                 <form onSubmit={handleTesoreroLogin} className="mt-6 space-y-4">
                   <div>
@@ -1687,7 +1697,7 @@ export default function App() {
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
                   >
-                    Ingresar
+                    Ingresar a Tesorería
                   </button>
                 </form>
               </div>
@@ -1696,7 +1706,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Tesorero Activo</span>
+                    <span className="text-sm font-bold text-slate-800">Tesorero Autorizado en Línea</span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -1705,14 +1715,14 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN
+                      Cambiar PIN de Acceso
                     </button>
                     <button
                       onClick={handleExportCSV}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Descargar Excel
+                      Descargar Excel (CSV)
                     </button>
                     <button
                       onClick={() => setShowBorrarTodoModal(true)}
@@ -1726,34 +1736,34 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      Bloquear
+                      Cerrar Sesión
                     </button>
                   </div>
                 </div>
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Entradas</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Entradas Verificadas</span>
                     <p className="text-lg font-extrabold text-slate-900 mt-2">{formatCOP(kpis.totalEntradasVerificadas)}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salidas</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salidas / Gastos</span>
                     <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.totalSalidas)}</p>
                   </div>
                   <div className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo Caja</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo Real en Caja</span>
                     <p className="text-xl font-extrabold text-emerald-400 mt-2">{formatCOP(kpis.saldoRealEnCaja)}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Pendiente</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Pendiente Recoger</span>
                     <p className="text-lg font-extrabold text-amber-700 mt-2">{formatCOP(kpis.pendientePorRecoger)}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">En Calle</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">En Calle (Fiados/Stock)</span>
                     <p className="text-lg font-extrabold text-indigo-900 mt-2">{formatCOP(kpis.totalCarteraYSinVender)}</p>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre</span>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre Acumulado</span>
                     <p className="text-lg font-extrabold text-rose-700 mt-2">{formatCOP(kpis.descuadreAcumulado)}</p>
                   </div>
                 </div>
@@ -1761,27 +1771,27 @@ export default function App() {
                 <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                   <button
                     onClick={() => setTesoreroTab('BANDEJA')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
-                      tesoreroTab === 'BANDEJA' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                      tesoreroTab === 'BANDEJA' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
                     Recepción y Permisos ({kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesEdicion})
                   </button>
                   <button
                     onClick={() => setTesoreroTab('EGRESOS')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
-                      tesoreroTab === 'EGRESOS' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                      tesoreroTab === 'EGRESOS' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    Registrar Gasto
+                    Registrar Gasto o Salida
                   </button>
                   <button
                     onClick={() => setTesoreroTab('LIBRO')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
-                      tesoreroTab === 'LIBRO' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
+                      tesoreroTab === 'LIBRO' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    Libro Único ({movimientos.length})
+                    Libro Único de Tesorería ({movimientos.length})
                   </button>
                 </div>
 
@@ -1789,30 +1799,37 @@ export default function App() {
                   <div className="space-y-6">
                     {kpis.cantidadSolicitudesEdicion > 0 && (
                       <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5">
-                        <h3 className="font-bold text-indigo-950 text-sm mb-3">Solicitudes de Edición</h3>
+                        <h3 className="font-bold text-indigo-950 text-sm mb-3 flex items-center gap-2">
+                          <Edit3 className="w-4 h-4 text-indigo-800" />
+                          Solicitudes de Edición de Recaudadores
+                        </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {movimientos
                             .filter((m) => m.solicitudEdicion)
                             .map((item) => (
-                              <div key={item.id} className="bg-white p-4 rounded-xl border flex flex-col justify-between gap-3">
+                              <div key={item.id} className="bg-white p-4 rounded-xl border border-indigo-200 shadow-xs flex flex-col justify-between gap-3">
                                 <div>
-                                  <span className="text-xs font-mono font-bold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">
-                                    {item.id} — {item.actividad}
-                                  </span>
-                                  <p className="text-xs text-amber-900 bg-amber-50 p-2 rounded mt-2">
-                                    "{item.motivoEdicion}"
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-mono font-bold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">
+                                      {item.id}
+                                    </span>
+                                    <span className="text-xs font-semibold text-slate-500">{item.responsable}</span>
+                                  </div>
+                                  <h4 className="font-bold text-slate-900 text-sm mt-1">{item.actividad}</h4>
+                                  <p className="text-xs text-amber-900 bg-amber-50 p-2.5 rounded-lg border border-amber-200 mt-2">
+                                    <strong>Motivo:</strong> "{item.motivoEdicion}"
                                   </p>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
                                     onClick={() => handleAutorizarEdicionTesorero(item, true)}
-                                    className="flex-1 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded"
+                                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all"
                                   >
-                                    Autorizar
+                                    Autorizar Edición
                                   </button>
                                   <button
                                     onClick={() => handleAutorizarEdicionTesorero(item, false)}
-                                    className="py-1.5 px-3 bg-rose-50 text-rose-700 text-xs font-bold rounded"
+                                    className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
                                   >
                                     Rechazar
                                   </button>
@@ -1824,10 +1841,13 @@ export default function App() {
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="bg-white rounded-2xl border p-6">
-                        <h3 className="font-bold text-slate-900 mb-4">Pendientes por Recoger</h3>
+                      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                        <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                          <Clock className="w-4 h-4 text-amber-600" />
+                          Recaudos Pendientes por Recoger
+                        </h3>
                         {movimientos.filter((m) => m.estado === 'PENDIENTE').length === 0 ? (
-                          <p className="text-sm text-slate-500 py-6 text-center">Todo al día.</p>
+                          <p className="text-sm text-slate-500 py-8 text-center">No hay recaudos pendientes de recolección.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
@@ -1835,16 +1855,17 @@ export default function App() {
                               .map((item) => (
                                 <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 flex justify-between items-center gap-3">
                                   <div>
-                                    <span className="font-bold text-sm text-slate-900">{item.actividad}</span>
-                                    <p className="text-xs text-slate-600">Resp: {item.responsable}</p>
+                                    <span className="text-xs font-mono font-bold text-amber-900">{item.id}</span>
+                                    <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
+                                    <p className="text-xs text-slate-600">Resp: {item.responsable} • {item.fecha}</p>
                                   </div>
-                                  <div className="text-right">
-                                    <span className="font-extrabold text-sm block">{formatCOP(item.montoReportado)}</span>
+                                  <div className="text-right shrink-0">
+                                    <span className="font-extrabold text-sm block text-slate-900">{formatCOP(item.montoReportado)}</span>
                                     <button
                                       onClick={() => openArqueoModal(item)}
-                                      className="mt-1 px-3 py-1 bg-indigo-900 text-white text-xs font-bold rounded"
+                                      className="mt-1 px-3 py-1.5 bg-indigo-900 hover:bg-indigo-800 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
                                     >
-                                      Recibir
+                                      Recibir y Arquear
                                     </button>
                                   </div>
                                 </div>
@@ -1853,25 +1874,35 @@ export default function App() {
                         )}
                       </div>
 
-                      <div className="bg-white rounded-2xl border p-6">
-                        <h3 className="font-bold text-slate-900 mb-4">Descuadres en Revisión</h3>
+                      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                        <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
+                          <AlertTriangle className="w-4 h-4 text-rose-600" />
+                          Descuadres en Revisión
+                        </h3>
                         {movimientos.filter((m) => m.estado === 'DESCUADRE').length === 0 ? (
-                          <p className="text-sm text-slate-500 py-6 text-center">Sin descuadres.</p>
+                          <p className="text-sm text-slate-500 py-8 text-center">No hay descuadres reportados.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
                               .filter((m) => m.estado === 'DESCUADRE')
                               .map((item) => (
                                 <div key={item.id} className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2">
-                                  <div className="flex justify-between">
-                                    <span className="font-bold text-sm">{item.actividad}</span>
+                                  <div className="flex justify-between items-start">
+                                    <div>
+                                      <span className="text-xs font-mono font-bold text-rose-900">{item.id}</span>
+                                      <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
+                                      <p className="text-xs text-slate-600">Resp: {item.responsable}</p>
+                                    </div>
                                     <button
                                       onClick={() => handleResolverDescuadre(item)}
-                                      className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-bold rounded"
+                                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
                                     >
-                                      Cerrar Revisión
+                                      Cerrar y Aclarar
                                     </button>
                                   </div>
+                                  <p className="text-xs bg-white p-2.5 rounded-lg border border-rose-200 text-rose-900 font-medium">
+                                    {item.notaTesorero}
+                                  </p>
                                 </div>
                               ))}
                           </div>
@@ -1882,116 +1913,174 @@ export default function App() {
                 )}
 
                 {tesoreroTab === 'EGRESOS' && (
-                  <div className="max-w-2xl bg-white rounded-2xl border shadow-sm overflow-hidden">
+                  <div className="max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="bg-slate-900 px-6 py-4 text-white">
-                      <h3 className="font-bold text-base">Registrar Gasto</h3>
+                      <h3 className="font-bold text-base">Registrar Gasto o Salida de Caja</h3>
+                      <p className="text-xs text-slate-400">Esta salida descontará saldo de la caja general de la iglesia.</p>
                     </div>
                     <form onSubmit={handleRegistrarEgreso} className="p-6 space-y-4">
-                      <div className="grid grid-cols-2 gap-4">
-                        <input
-                          type="date"
-                          required
-                          value={egrFecha}
-                          onChange={(e) => setEgrFecha(e.target.value)}
-                          className="px-3.5 py-2.5 rounded-xl border text-sm"
-                        />
-                        <select
-                          value={egrCategoria}
-                          onChange={(e) => setEgrCategoria(e.target.value)}
-                          className="px-3.5 py-2.5 rounded-xl border text-sm bg-white"
-                        >
-                          {CATEGORIAS_EGRESO.map((cat) => (
-                            <option key={cat} value={cat}>{cat}</option>
-                          ))}
-                        </select>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Fecha</label>
+                          <input
+                            type="date"
+                            required
+                            value={egrFecha}
+                            onChange={(e) => setEgrFecha(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Categoría de Gasto</label>
+                          <select
+                            value={egrCategoria}
+                            onChange={(e) => setEgrCategoria(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          >
+                            {CATEGORIAS_EGRESO.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
                       </div>
-                      <input
-                        type="text"
-                        required
-                        placeholder="Concepto del gasto..."
-                        value={egrConcepto}
-                        onChange={(e) => setEgrConcepto(e.target.value)}
-                        className="w-full px-3.5 py-2.5 rounded-xl border text-sm"
-                      />
-                      <div className="grid grid-cols-2 gap-4">
+
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Concepto / Descripción del Gasto</label>
                         <input
                           type="text"
                           required
-                          placeholder="Autoriza..."
-                          value={egrResponsable}
-                          onChange={(e) => setEgrResponsable(e.target.value)}
-                          className="px-3.5 py-2.5 rounded-xl border text-sm"
-                        />
-                        <input
-                          type="number"
-                          min="100"
-                          step="100"
-                          required
-                          placeholder="Valor ($)"
-                          value={egrMonto}
-                          onChange={(e) => setEgrMonto(e.target.value)}
-                          className="px-3.5 py-2.5 rounded-xl border text-sm font-bold text-rose-700"
+                          placeholder="Ej. Compra de carbón e insumos para tamales..."
+                          value={egrConcepto}
+                          onChange={(e) => setEgrConcepto(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
                         />
                       </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Autoriza / Responsable</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Pastor / Tesorero"
+                            value={egrResponsable}
+                            onChange={(e) => setEgrResponsable(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Valor del Gasto ($)</label>
+                          <input
+                            type="number"
+                            min="100"
+                            step="100"
+                            required
+                            placeholder="Ej. 150000"
+                            value={egrMonto}
+                            onChange={(e) => setEgrMonto(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-rose-700"
+                          />
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Nota u Observación (Opcional)</label>
+                        <input
+                          type="text"
+                          placeholder="Número de factura o detalles..."
+                          value={egrNota}
+                          onChange={(e) => setEgrNota(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                        />
+                      </div>
+
                       <button
                         type="submit"
-                        className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
+                        className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all"
                       >
-                        Registrar Salida
+                        Registrar Salida en Tesorería
                       </button>
                     </form>
                   </div>
                 )}
 
                 {tesoreroTab === 'LIBRO' && (
-                  <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
-                    <div className="p-5 border-b flex justify-between gap-4 flex-wrap">
-                      <h3 className="text-lg font-bold text-slate-900">Libro Único</h3>
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          placeholder="Buscar..."
-                          value={busquedaLibro}
-                          onChange={(e) => setBusquedaLibro(e.target.value)}
-                          className="px-3 py-2 rounded-xl border text-xs"
-                        />
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
+                      <h3 className="text-lg font-bold text-slate-900">Libro Único de Tesorería</h3>
+                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                        <div className="relative flex-1 sm:w-64">
+                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
+                          <input
+                            type="text"
+                            placeholder="Buscar en el libro..."
+                            value={busquedaLibro}
+                            onChange={(e) => setBusquedaLibro(e.target.value)}
+                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
+                          />
+                        </div>
                         <select
                           value={filtroLibro}
                           onChange={(e) => setFiltroLibro(e.target.value)}
-                          className="px-3 py-2 rounded-xl border text-xs font-semibold bg-white"
+                          className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white"
                         >
                           <option value="TODOS">Todos</option>
                           <option value="VERIFICADO">Verificados</option>
                           <option value="PENDIENTE">Pendientes</option>
                           <option value="DESCUADRE">Descuadres</option>
+                          <option value="INGRESOS">Solo Ingresos</option>
+                          <option value="EGRESOS">Solo Egresos</option>
                         </select>
                       </div>
                     </div>
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b">
+                          <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b border-slate-200">
                             <th className="py-3 px-4">Fecha / ID</th>
-                            <th className="py-3 px-4">Actividad</th>
+                            <th className="py-3 px-4">Actividad / Concepto</th>
                             <th className="py-3 px-4">Responsable</th>
-                            <th className="py-3 px-4 text-right">Reportado</th>
-                            <th className="py-3 px-4 text-right">Entrada Real</th>
-                            <th className="py-3 px-4 text-right">Salida</th>
+                            <th className="py-3 px-4 text-right">Reportado Mano</th>
+                            <th className="py-3 px-4 text-right">Entrada Real Caja</th>
+                            <th className="py-3 px-4 text-right">Salida / Gasto</th>
                             <th className="py-3 px-4">Estado</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y text-sm">
-                          {movimientosFiltrados.map((m) => (
-                            <tr key={m.id} className="hover:bg-slate-50">
-                              <td className="py-3 px-4 text-xs font-semibold">{m.fecha}<div className="text-[10px] text-slate-400">{m.id}</div></td>
-                              <td className="py-3 px-4 text-xs font-bold">{m.actividad}<div className="text-slate-600 font-normal">{m.descripcion}</div></td>
-                              <td className="py-3 px-4 text-xs">{m.responsable}</td>
-                              <td className="py-3 px-4 text-right text-xs">{m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}</td>
-                              <td className="py-3 px-4 text-right text-xs font-extrabold text-emerald-700">{m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}</td>
-                              <td className="py-3 px-4 text-right text-xs font-extrabold text-rose-600">{m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}</td>
-                              <td className="py-3 px-4">{renderEstadoBadge(m)}</td>
+                        <tbody className="divide-y divide-slate-200 text-sm">
+                          {movimientosFiltrados.length === 0 ? (
+                            <tr>
+                              <td colSpan="7" className="text-center py-10 text-slate-500 text-xs">
+                                No se encontraron registros con los filtros seleccionados.
+                              </td>
                             </tr>
-                          ))}
+                          ) : (
+                            movimientosFiltrados.map((m) => (
+                              <tr key={m.id} className="hover:bg-slate-50">
+                                <td className="py-3 px-4 text-xs font-semibold">
+                                  {m.fecha}
+                                  <div className="text-[10px] font-mono text-slate-400">{m.id}</div>
+                                </td>
+                                <td className="py-3 px-4 text-xs">
+                                  <span className="font-bold text-slate-900 block">{m.actividad}</span>
+                                  <span className="text-slate-600">{m.descripcion}</span>
+                                  {m.notaTesorero && (
+                                    <span className="block text-[10px] text-indigo-700 mt-0.5">Nota: {m.notaTesorero}</span>
+                                  )}
+                                </td>
+                                <td className="py-3 px-4 text-xs text-slate-700">{m.responsable}</td>
+                                <td className="py-3 px-4 text-right text-xs">
+                                  {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
+                                </td>
+                                <td className="py-3 px-4 text-right text-xs font-extrabold text-emerald-700">
+                                  {m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}
+                                </td>
+                                <td className="py-3 px-4 text-right text-xs font-extrabold text-rose-600">
+                                  {m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}
+                                </td>
+                                <td className="py-3 px-4">{renderEstadoBadge(m)}</td>
+                              </tr>
+                            ))
+                          )}
                         </tbody>
                       </table>
                     </div>
@@ -2003,24 +2092,24 @@ export default function App() {
         )}
       </main>
 
-      {/* Modales secundarios */}
+      {/* Modales generales */}
       {showCambiarPinRecaudador && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base">Cambiar PIN Recaudador</h3>
-            <form onSubmit={handleGuardارNuevoPinRec => {}}>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Cambiar PIN de Recaudador</h3>
+            <form onSubmit={handleGuardarNuevoPinRec}>
               <input
                 type="password"
                 required
                 placeholder="Nuevo PIN..."
                 value={nuevoPinRecInput}
                 onChange={(e) => setNuevoPinRecInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border text-sm mb-4"
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" onClick={handleGuardarNuevoPinRec} className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Guardar</button>
+                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
               </div>
             </form>
           </div>
@@ -2029,33 +2118,35 @@ export default function App() {
 
       {showCambiarPinTesorero && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base">Cambiar PIN Tesorería</h3>
-            <input
-              type="password"
-              required
-              placeholder="Nuevo PIN..."
-              value={nuevoPinTesInput}
-              onChange={(e) => setNuevoPinTesInput(e.target.value)}
-              className="w-full px-3.5 py-2.5 rounded-xl border text-sm mb-4"
-              autoFocus
-            />
-            <div className="flex gap-2">
-              <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-              <button type="button" onClick={handleGuardarNuevoPinTes} className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Guardar</button>
-            </div>
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Cambiar PIN de Tesorería</h3>
+            <form onSubmit={handleGuardarNuevoPinTes}>
+              <input
+                type="password"
+                required
+                placeholder="Nuevo PIN..."
+                value={nuevoPinTesInput}
+                onChange={(e) => setNuevoPinTesInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
+              </div>
+            </form>
           </div>
         </div>
       )}
 
       {showBorrarTodoModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-rose-700">Borrar Todo</h3>
-            <p className="text-xs text-slate-600">Se eliminarán todos los registros de la base de datos.</p>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700">¿Borrar todos los registros?</h3>
+            <p className="text-xs text-slate-600">Esta acción eliminará por completo todos los movimientos de la base de datos de Supabase. No se puede deshacer.</p>
             <div className="flex gap-2 pt-2">
-              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
-              <button onClick={handleBorrarTodoContenido} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold">Sí, borrar</button>
+              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+              <button onClick={handleBorrarTodoContenido} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, borrar todo</button>
             </div>
           </div>
         </div>
@@ -2063,21 +2154,22 @@ export default function App() {
 
       {solicitudEdicionModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-base">Solicitar Permiso de Edición</h3>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
+            <p className="text-xs text-slate-500">Explica brevemente a Tesorería por qué necesitas modificar este recaudo:</p>
             <form onSubmit={handleEnviarSolicitudEdicion}>
               <textarea
                 rows={3}
                 required
-                placeholder="Motivo..."
+                placeholder="Motivo de la corrección..."
                 value={motivoSolicitudEdicion}
                 onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
-                className="w-full px-3 py-2 border text-xs rounded-xl mb-4"
+                className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Enviar</button>
+                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
               </div>
             </form>
           </div>
@@ -2086,9 +2178,12 @@ export default function App() {
 
       {abonoModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-base">Registrar Abono</h3>
-            <p className="text-xs text-slate-600">Debe: {formatCOP(abonoModal.saldoPendiente)}</p>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Registrar Abono</h3>
+            <p className="text-xs text-slate-600">
+              Comprador: <strong>{abonoModal.comprador.nombre}</strong><br />
+              Saldo pendiente actual: <span className="text-rose-700 font-bold">{formatCOP(abonoModal.saldoPendiente)}</span>
+            </p>
             <form onSubmit={handleConfirmarAbono}>
               <input
                 type="number"
@@ -2098,12 +2193,12 @@ export default function App() {
                 required
                 value={valorAbonoInput}
                 onChange={(e) => setValorAbonoInput(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4"
+                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 text-center"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">Guardar</button>
+                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Guardar Abono</button>
               </div>
             </form>
           </div>
@@ -2112,30 +2207,39 @@ export default function App() {
 
       {arqueoItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
-            <h3 className="font-bold text-base">Arqueo y Recepción</h3>
-            <p className="text-xs text-slate-600">Reportado: {formatCOP(arqueoItem.montoReportado)}</p>
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Efectivo</h3>
+            <p className="text-xs text-slate-600">
+              Actividad: <strong>{arqueoItem.actividad}</strong> ({arqueoItem.responsable})<br />
+              Monto reportado por recaudador: <span className="font-bold text-indigo-900">{formatCOP(arqueoItem.montoReportado)}</span>
+            </p>
             <form onSubmit={handleConfirmarArqueo}>
-              <input
-                type="number"
-                min="0"
-                step="100"
-                required
-                value={montoFisicoContado}
-                onChange={(e) => setMontoFisicoContado(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-3"
-                autoFocus
-              />
-              <textarea
-                rows={2}
-                placeholder="Observación..."
-                value={notaArqueo}
-                onChange={(e) => setNotaArqueo(e.target.value)}
-                className="w-full px-3 py-2 border text-xs rounded-xl mb-4"
-              />
+              <div className="mb-3">
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Físico Contado ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  required
+                  value={montoFisicoContado}
+                  onChange={(e) => setMontoFisicoContado(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 text-center"
+                  autoFocus
+                />
+              </div>
+              <div className="mb-4">
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nota u Observación de Tesorería</label>
+                <textarea
+                  rows={2}
+                  placeholder="Detalles del arqueo..."
+                  value={notaArqueo}
+                  onChange={(e) => setNotaArqueo(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+              </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">Confirmar</button>
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Confirmar y Recibir</button>
               </div>
             </form>
           </div>
