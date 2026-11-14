@@ -146,29 +146,26 @@ const CATEGORIAS_EGRESO = [
 
 export default function App() {
   const [movimientos, setMovimientos] = useState(INITIAL_DATA);
+  const [pinRecaudador, setPinRecaudador] = useState('2026');
+  const [pinTesorero, setPinTesorero] = useState('1234');
   const [cargandoNube, setCargandoNube] = useState(true);
 
-  // Sincronización en tiempo real al iniciar cargando desde Supabase
+  // Cargar datos y PINs desde Supabase al iniciar
   useEffect(() => {
     supabase
       .from('estado_tesoreria')
-      .select('datos')
+      .select('datos, pin_rec, pin_tes')
       .eq('id', 1)
       .single()
-      .then(({ data, error }) => {
-        if (data && data.datos) {
-          setMovimientos(Array.isArray(data.datos) ? data.datos : []);
+      .then(({ data }) => {
+        if (data) {
+          if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
+          if (data.pin_rec) setPinRecaudador(data.pin_rec);
+          if (data.pin_tes) setPinTesorero(data.pin_tes);
         }
         setCargandoNube(false);
       });
   }, []);
-
-  const [pinRecaudador, setPinRecaudador] = useState(() => {
-    return localStorage.getItem('pin_recaudador_iglesia') || '2026';
-  });
-  const [pinTesorero, setPinTesorero] = useState(() => {
-    return localStorage.getItem('pin_tesorero_iglesia') || '1234';
-  });
 
   const [showCambiarPinRecaudador, setShowCambiarPinRecaudador] = useState(false);
   const [nuevoPinRecInput, setNuevoPinRecInput] = useState('');
@@ -229,27 +226,20 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
-  // Guardado automático en Supabase cada vez que los movimientos cambian
+  // Guardado automático en Supabase de movimientos y PINs en tiempo real
   useEffect(() => {
     if (cargandoNube) return;
     try {
       supabase
         .from('estado_tesoreria')
-        .upsert({ id: 1, datos: movimientos })
+        .upsert({ id: 1, datos: movimientos, pin_rec: pinRecaudador, pin_tes: pinTesorero })
         .then(({ error }) => {
           if (error) console.error('Error al guardar en Supabase:', error);
         });
     } catch (err) {
       console.error(err);
     }
-  }, [movimientos, cargandoNube]);
-
-  useEffect(() => {
-    try {
-      localStorage.setItem('pin_recaudador_iglesia', pinRecaudador);
-      localStorage.setItem('pin_tesorero_iglesia', pinTesorero);
-    } catch {}
-  }, [pinRecaudador, pinTesorero]);
+  }, [movimientos, pinRecaudador, pinTesorero, cargandoNube]);
 
   const toggleExpandRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -269,7 +259,7 @@ export default function App() {
     setPinRecaudador(nuevoPinRecInput.trim());
     setShowCambiarPinRecaudador(false);
     setNuevoPinRecInput('');
-    showToast('Contraseña de Recaudador actualizada con éxito.', 'success');
+    showToast('Contraseña de Recaudador actualizada y sincronizada.', 'success');
   };
 
   const handleGuardarNuevoPinTes = (e) => {
@@ -281,7 +271,7 @@ export default function App() {
     setPinTesorero(nuevoPinTesInput.trim());
     setShowCambiarPinTesorero(false);
     setNuevoPinTesInput('');
-    showToast('Contraseña de Tesorería actualizada con éxito.', 'success');
+    showToast('Contraseña de Tesorería actualizada y sincronizada.', 'success');
   };
 
   const handleBorrarTodoContenido = () => {
@@ -1030,12 +1020,6 @@ export default function App() {
     link.click();
     document.body.removeChild(link);
     showToast('Libro Único exportado a CSV (listo para abrir en Excel).', 'success');
-  };
-
-  const handleRestaurarDemo = () => {
-    // Si quieres borrar la base de datos de Supabase y dejarla vacía o sin demo
-    setMovimientos([]);
-    showToast('Tesorería limpiada correctamente.', 'success');
   };
 
   const movimientosFiltrados = useMemo(() => {
