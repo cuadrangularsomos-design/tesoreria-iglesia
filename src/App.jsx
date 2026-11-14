@@ -117,6 +117,7 @@ const calcularResumenInventario = (item) => {
     plataSinVender,
     totalUnidadesFaltantes,
     totalPlataFaltante,
+    agotado: unidadesSinVender === 0,
   };
 };
 
@@ -1648,7 +1649,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => setIsTesoreroAuth(false)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
                       Cerrar Sesión
@@ -2110,7 +2111,7 @@ export default function App() {
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                           {m.compradores.map((c) => {
                                             const totalC = c.cantidad * inv.precioUnitario;
-                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
                                             const saldoC = Math.max(0, totalC - abonoC);
                                             return (
                                               <div key={c.id} className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-[11px]">
