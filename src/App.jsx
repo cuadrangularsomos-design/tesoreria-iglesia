@@ -1649,7 +1649,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => setIsTesoreroAuth(false)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
                       Cerrar Sesión
