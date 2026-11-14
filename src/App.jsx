@@ -18,18 +18,14 @@ import {
   Lock,
   Unlock,
   Download,
-  RotateCcw,
   Search,
   Filter,
   Receipt,
   Calculator,
-  UserCheck,
-  ArrowUpRight,
   ArrowDownRight,
   X,
   FileSpreadsheet,
   Info,
-  CreditCard,
   Banknote,
   Edit3,
   Package,
@@ -150,21 +146,47 @@ export default function App() {
   const [pinTesorero, setPinTesorero] = useState('1234');
   const [cargandoNube, setCargandoNube] = useState(true);
 
-  // Cargar datos y PINs desde Supabase al iniciar
+  // Cargar datos y PINs desde Supabase al iniciar + Escuchar cambios en TIEMPO REAL
   useEffect(() => {
-    supabase
-      .from('estado_tesoreria')
-      .select('datos, pin_rec, pin_tes')
-      .eq('id', 1)
-      .single()
-      .then(({ data }) => {
-        if (data) {
-          if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
-          if (data.pin_rec) setPinRecaudador(data.pin_rec);
-          if (data.pin_tes) setPinTesorero(data.pin_tes);
+    const fetchData = () => {
+      supabase
+        .from('estado_tesoreria')
+        .select('datos, pin_rec, pin_tes')
+        .eq('id', 1)
+        .single()
+        .then(({ data }) => {
+          if (data) {
+            if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
+            if (data.pin_rec) setPinRecaudador(data.pin_rec);
+            if (data.pin_tes) setPinTesorero(data.pin_tes);
+          }
+          setCargandoNube(false);
+        });
+    };
+
+    fetchData();
+
+    // Suscripción en tiempo real a Supabase (Realtime)
+    const canalRealtime = supabase
+      .channel('cambios_tesoreria')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'estado_tesoreria', filter: 'id=eq.1' },
+        (payload) => {
+          if (payload.new) {
+            if (payload.new.datos) {
+              setMovimientos(Array.isArray(payload.new.datos) ? payload.new.datos : []);
+            }
+            if (payload.new.pin_rec) setPinRecaudador(payload.new.pin_rec);
+            if (payload.new.pin_tes) setPinTesorero(payload.new.pin_tes);
+          }
         }
-        setCargandoNube(false);
-      });
+      )
+      .subscribe();
+
+    return () => {
+      supabase.removeChannel(canalRealtime);
+    };
   }, []);
 
   const [showCambiarPinRecaudador, setShowCambiarPinRecaudador] = useState(false);
@@ -226,20 +248,20 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
-  // Guardado automático en Supabase de movimientos y PINs en tiempo real
-  useEffect(() => {
+  // Guardado automático en Supabase de movimientos y PINs
+  const guardarEnNube = (nuevosMovs, nuevoPinR, nuevoPinT) => {
     if (cargandoNube) return;
     try {
       supabase
         .from('estado_tesoreria')
-        .upsert({ id: 1, datos: movimientos, pin_rec: pinRecaudador, pin_tes: pinTesorero })
+        .upsert({ id: 1, datos: nuevosMovs, pin_rec: nuevoPinR, pin_tes: nuevoPinT })
         .then(({ error }) => {
           if (error) console.error('Error al guardar en Supabase:', error);
         });
     } catch (err) {
       console.error(err);
     }
-  }, [movimientos, pinRecaudador, pinTesorero, cargandoNube]);
+  };
 
   const toggleExpandRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -256,9 +278,11 @@ export default function App() {
       showToast('Ingresa una contraseña válida.', 'error');
       return;
     }
-    setPinRecaudador(nuevoPinRecInput.trim());
+    const nuevoPin = nuevoPinRecInput.trim();
+    setPinRecaudador(nuevoPin);
     setShowCambiarPinRecaudador(false);
     setNuevoPinRecInput('');
+    guardarEnNube(movimientos, nuevoPin, pinTesorero);
     showToast('Contraseña de Recaudador actualizada y sincronizada.', 'success');
   };
 
@@ -268,15 +292,18 @@ export default function App() {
       showToast('Ingresa una contraseña válida.', 'error');
       return;
     }
-    setPinTesorero(nuevoPinTesInput.trim());
+    const nuevoPin = nuevoPinTesInput.trim();
+    setPinTesorero(nuevoPin);
     setShowCambiarPinTesorero(false);
     setNuevoPinTesInput('');
+    guardarEnNube(movimientos, pinRecaudador, nuevoPin);
     showToast('Contraseña de Tesorería actualizada y sincronizada.', 'success');
   };
 
   const handleBorrarTodoContenido = () => {
     setMovimientos([]);
     setShowBorrarTodoModal(false);
+    guardarEnNube([], pinRecaudador, pinTesorero);
     showToast('Se han borrado todos los registros de la tesorería.', 'warning');
   };
 
@@ -303,32 +330,32 @@ export default function App() {
         `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas, ${resumenFormUnidades.unidadesSinVender} sin vender)`;
 
       if (editingRecaudoId) {
-        setMovimientos((prev) =>
-          prev.map((m) =>
-            m.id === editingRecaudoId
-              ? {
-                  ...m,
-                  fecha: recFecha,
-                  modoRegistro: 'UNIDADES',
-                  actividad: recActividad,
-                  descripcion: descFinal,
-                  responsable: recNombre.trim(),
-                  metodoPago: recMetodo,
-                  cantidadProducida: producidas,
-                  precioUnitario: precio,
-                  compradores: Array.isArray(recCompradores) ? [...recCompradores] : [],
-                  montoReportado: valorRecaudadoEnMano,
-                  edicionAutorizada: false,
-                  solicitudEdicion: false,
-                  motivoEdicion: '',
-                }
-              : m
-          )
+        const actualizados = movimientos.map((m) =>
+          m.id === editingRecaudoId
+            ? {
+                ...m,
+                fecha: recFecha,
+                modoRegistro: 'UNIDADES',
+                actividad: recActividad,
+                descripcion: descFinal,
+                responsable: recNombre.trim(),
+                metodoPago: recMetodo,
+                cantidadProducida: producidas,
+                precioUnitario: precio,
+                compradores: Array.isArray(recCompradores) ? [...recCompradores] : [],
+                montoReportado: valorRecaudadoEnMano,
+                edicionAutorizada: false,
+                solicitudEdicion: false,
+                motivoEdicion: '',
+              }
+            : m
         );
+        setMovimientos(actualizados);
+        guardarEnNube(actualizados, pinRecaudador, pinTesorero);
         setEditingRecaudoId(null);
         setRecDescripcion('');
         setRecCompradores([]);
-        showToast('Recaudo modificado y actualizado. El permiso de edición se ha cerrado.', 'success');
+        showToast('Recaudo modificado y actualizado en la nube.', 'success');
         return;
       }
 
@@ -352,16 +379,13 @@ export default function App() {
         notaTesorero: '',
       };
 
-      setMovimientos([nuevoRegistro, ...movimientos]);
+      const actualizados = [nuevoRegistro, ...movimientos];
+      setMovimientos(actualizados);
+      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
       setRecDescripcion('');
       setRecCompradores([]);
-      showToast(
-        `Actividad registrada: ${formatCOP(valorRecaudadoEnMano)} recaudados en mano y ${formatCOP(
-          resumenFormUnidades.totalPlataFaltante
-        )} pendientes en calle.`,
-        'success'
-      );
+      showToast('Actividad registrada y sincronizada en tiempo real.', 'success');
       return;
     }
 
@@ -372,32 +396,32 @@ export default function App() {
     }
 
     if (editingRecaudoId) {
-      setMovimientos((prev) =>
-        prev.map((m) =>
-          m.id === editingRecaudoId
-            ? {
-                ...m,
-                fecha: recFecha,
-                modoRegistro: 'GENERAL',
-                actividad: recActividad,
-                descripcion: recDescripcion.trim(),
-                responsable: recNombre.trim(),
-                metodoPago: recMetodo,
-                cantidadProducida: undefined,
-                precioUnitario: undefined,
-                compradores: undefined,
-                montoReportado: valor,
-                edicionAutorizada: false,
-                solicitudEdicion: false,
-                motivoEdicion: '',
-              }
-            : m
-        )
+      const actualizados = movimientos.map((m) =>
+        m.id === editingRecaudoId
+          ? {
+              ...m,
+              fecha: recFecha,
+              modoRegistro: 'GENERAL',
+              actividad: recActividad,
+              descripcion: recDescripcion.trim(),
+              responsable: recNombre.trim(),
+              metodoPago: recMetodo,
+              cantidadProducida: undefined,
+              precioUnitario: undefined,
+              compradores: undefined,
+              montoReportado: valor,
+              edicionAutorizada: false,
+              solicitudEdicion: false,
+              motivoEdicion: '',
+            }
+          : m
       );
+      setMovimientos(actualizados);
+      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
       setEditingRecaudoId(null);
       setRecDescripcion('');
       setRecMonto('');
-      showToast('Recaudo general modificado. El permiso de edición se ha cerrado.', 'success');
+      showToast('Recaudo general modificado y sincronizado.', 'success');
       return;
     }
 
@@ -417,15 +441,17 @@ export default function App() {
       notaTesorero: '',
     };
 
-    setMovimientos([nuevoRegistro, ...movimientos]);
+    const actualizados = [nuevoRegistro, ...movimientos];
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     setRecDescripcion('');
     setRecMonto('');
-    showToast('Recaudo registrado y enviado a Tesorería (Pendiente por recoger).', 'success');
+    showToast('Recaudo registrado y enviado a Tesorería.', 'success');
   };
 
   const handleIniciarEdicionRecaudo = (item) => {
     if (item.estado === 'VERIFICADO') {
-      showToast('Este recaudo ya fue recibido y verificado por Tesorería; no se puede editar.', 'warning');
+      showToast('Este recaudo ya fue recibido por Tesorería; no se puede editar.', 'warning');
       return;
     }
     if (!item.edicionAutorizada) {
@@ -451,7 +477,7 @@ export default function App() {
       setRecCompradores([]);
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast(`Editando registro ${item.id}. Realiza los cambios y presiona "Guardar Cambios".`, 'success');
+    showToast('Editando registro. Realiza los cambios y guarda.', 'success');
   };
 
   const handleCancelarEdicionRecaudo = () => {
@@ -467,46 +493,44 @@ export default function App() {
 
     const motivo = motivoSolicitudEdicion.trim();
     if (!motivo) {
-      showToast('Escribe brevemente qué dato necesitas corregir para que Tesorería lo autorice.', 'error');
+      showToast('Escribe brevemente qué dato necesitas corregir.', 'error');
       return;
     }
 
-    setMovimientos((prev) =>
-      prev.map((m) =>
-        m.id === solicitudEdicionModal.id
-          ? {
-              ...m,
-              solicitudEdicion: true,
-              motivoEdicion: motivo,
-            }
-          : m
-      )
+    const actualizados = movimientos.map((m) =>
+      m.id === solicitudEdicionModal.id
+        ? {
+            ...m,
+            solicitudEdicion: true,
+            motivoEdicion: motivo,
+          }
+        : m
     );
 
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     showToast(`Solicitud enviada a Tesorería para el registro ${solicitudEdicionModal.id}.`, 'success');
     setSolicitudEdicionModal(null);
     setMotivoSolicitudEdicion('');
   };
 
   const handleAutorizarEdicionTesorero = (item, aprobar) => {
-    setMovimientos((prev) =>
-      prev.map((m) =>
-        m.id === item.id
-          ? {
-              ...m,
-              edicionAutorizada: aprobar,
-              solicitudEdicion: false,
-              notaTesorero: aprobar
-                ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada por Tesorería: ${m.motivoEdicion || 'Corrección solicitada'}]`
-                : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Solicitud de edición rechazada por Tesorería]`,
-            }
-          : m
-      )
+    const actualizados = movimientos.map((m) =>
+      m.id === item.id
+        ? {
+            ...m,
+            edicionAutorizada: aprobar,
+            solicitudEdicion: false,
+            notaTesorero: aprobar
+              ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada por Tesorería]`
+              : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Solicitud rechazada por Tesorería]`,
+          }
+        : m
     );
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     showToast(
-      aprobar
-        ? `Edición autorizada para ${item.id}. La recaudadora ya puede corregirlo.`
-        : `Solicitud de edición rechazada para ${item.id}.`,
+      aprobar ? `Edición autorizada para ${item.id}.` : `Solicitud rechazada para ${item.id}.`,
       aprobar ? 'success' : 'warning'
     );
   };
@@ -569,18 +593,15 @@ export default function App() {
     const totalComp = cant * precio;
 
     if (!nombre) {
-      showToast('Escribe el nombre de la persona que compró o pidió fiado.', 'error');
+      showToast('Escribe el nombre de la persona.', 'error');
       return;
     }
     if (cant <= 0) {
-      showToast('La cantidad de unidades debe ser mayor a 0.', 'error');
+      showToast('La cantidad debe ser mayor a 0.', 'error');
       return;
     }
     if (producidas > 0 && resumenFormUnidades.unidadesAsignadas + cant > producidas) {
-      showToast(
-        `No puedes asignar ${cant} unidades. Solo quedan ${resumenFormUnidades.unidadesSinVender} disponibles de las ${producidas} producidas.`,
-        'error'
-      );
+      showToast(`No puedes asignar ${cant} unidades. Quedan ${resumenFormUnidades.unidadesSinVender} disponibles.`, 'error');
       return;
     }
 
@@ -662,10 +683,7 @@ export default function App() {
       return;
     }
     if (abonoNuevo > abonoModal.saldoPendiente) {
-      showToast(
-        `El abono no puede superar el saldo pendiente de ${formatCOP(abonoModal.saldoPendiente)}.`,
-        'error'
-      );
+      showToast(`El abono supera el saldo pendiente de ${formatCOP(abonoModal.saldoPendiente)}.`, 'error');
       return;
     }
 
@@ -707,13 +725,8 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    const esPagoTotal = abonoNuevo === abonoModal.saldoPendiente;
-    showToast(
-      esPagoTotal
-        ? `¡Deuda saldada! ${abonoModal.comprador.nombre} completó el pago de ${formatCOP(abonoModal.totalComp)}.`
-        : `Abono de ${formatCOP(abonoNuevo)} registrado para ${abonoModal.comprador.nombre}.`,
-      'success'
-    );
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado y sincronizado.`, 'success');
     setAbonoModal(null);
     setValorAbonoInput('');
   };
@@ -751,7 +764,8 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    showToast('Estado de pago actualizado. El dinero recaudado y la cartera se han recalculado.', 'success');
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    showToast('Estado de pago actualizado en tiempo real.', 'success');
   };
 
   const kpis = useMemo(() => {
@@ -868,19 +882,20 @@ export default function App() {
             notaArqueo.trim() ||
             (esExacto
               ? 'Recibido y cuadrado conforme.'
-              : `Diferencia detectada de ${formatCOP(reportado - contado)} al contar el dinero.`),
+              : `Diferencia detectada de ${formatCOP(reportado - contado)}.`),
         };
       }
       return m;
     });
 
     setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     setArqueoItem(null);
 
     if (esExacto) {
-      showToast('Dinero recibido y verificado. Sumado al Saldo en Caja.', 'success');
+      showToast('Dinero recibido, verificado y sincronizado.', 'success');
     } else {
-      showToast('Arqueo guardado con DESCUADRE EN REVISIÓN.', 'warning');
+      showToast('Arqueo guardado con DESCUADRE.', 'warning');
     }
   };
 
@@ -891,12 +906,13 @@ export default function App() {
           ...m,
           montoReportado: m.montoRecibido,
           estado: 'VERIFICADO',
-          notaTesorero: `${m.notaTesorero} | [Descuadre auditado y cerrado por Tesorería]`,
+          notaTesorero: `${m.notaTesorero} | [Descuadre aclarado y cerrado]`,
         };
       }
       return m;
     });
     setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     showToast('Descuadre aclarado y marcado como Verificado.', 'success');
   };
 
@@ -904,7 +920,7 @@ export default function App() {
     e.preventDefault();
     const valor = Number(egrMonto.toString().replace(/\D/g, ''));
     if (!egrConcepto.trim() || !egrResponsable.trim() || valor <= 0) {
-      showToast('Completa todos los campos del gasto y un monto válido.', 'error');
+      showToast('Completa todos los campos del gasto.', 'error');
       return;
     }
 
@@ -923,36 +939,21 @@ export default function App() {
       notaTesorero: egrNota.trim(),
     };
 
-    setMovimientos([nuevoEgreso, ...movimientos]);
+    const actualizados = [nuevoEgreso, ...movimientos];
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
-    showToast(`Salida por ${formatCOP(valor)} descontada del Saldo en Caja.`, 'success');
+    showToast(`Salida por ${formatCOP(valor)} registrada y sincronizada.`, 'success');
     setTesoreroTab('LIBRO');
   };
 
   const handleExportCSV = () => {
     const headers = [
-      'ID',
-      'Fecha',
-      'Tipo Movimiento',
-      'Modo Registro',
-      'Actividad / Categoría',
-      'Descripción / Detalle',
-      'Responsable',
-      'Método',
-      'Unid. Producidas',
-      'Precio Unitario',
-      'Unid. Pagadas',
-      'Unid. Fiadas',
-      'Unid. Sin Vender',
-      'Faltante por Recoger en Calle (COP)',
-      'Detalle Compradores / Deudores',
-      'Monto Reportado en Mano (COP)',
-      'Ingreso Real Recibido en Caja (COP)',
-      'Salida / Egreso (COP)',
-      'Estado Contable',
-      'Observaciones Tesorería',
+      'ID', 'Fecha', 'Tipo', 'Modo', 'Actividad', 'Descripción', 'Responsable',
+      'Método', 'Producidas', 'Precio Unit.', 'Pagadas', 'Fiadas', 'Sin Vender',
+      'Faltante Calle', 'Compradores', 'Reportado Mano', 'Recibido Caja', 'Salida', 'Estado', 'Nota'
     ];
 
     const rows = movimientos.map((m) => {
@@ -963,63 +964,33 @@ export default function App() {
           ? m.compradores
               .map((c) => {
                 const totalC = (Number(c.cantidad) || 0) * precio;
-                const abonoC =
-                  c.estadoPago === 'PAGADO'
-                    ? totalC
-                    : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
+                const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
                 const saldoC = Math.max(0, totalC - abonoC);
-                return saldoC > 0
-                  ? `${c.nombre} (${c.cantidad} unid - Abonó ${formatCOP(abonoC)} / Debe ${formatCOP(saldoC)})`
-                  : `${c.nombre} (${c.cantidad} unid - PAGADO)`;
+                return saldoC > 0 ? `${c.nombre} (${c.cantidad} unid - Debe ${formatCOP(saldoC)})` : `${c.nombre} (PAGADO)`;
               })
               .join(' | ')
           : '';
 
       return [
-        m.id,
-        m.fecha,
-        m.tipo,
-        m.modoRegistro || 'GENERAL',
-        `"${m.actividad.replace(/"/g, '""')}"`,
-        `"${m.descripcion.replace(/"/g, '""')}"`,
-        `"${m.responsable.replace(/"/g, '""')}"`,
-        m.metodoPago,
-        inv.esUnidades ? inv.producidas : '',
-        inv.esUnidades ? inv.precioUnitario : '',
-        inv.esUnidades ? inv.unidadesPagadas : '',
-        inv.esUnidades ? inv.unidadesFiadas : '',
-        inv.esUnidades ? inv.unidadesSinVender : '',
-        inv.esUnidades ? inv.totalPlataFaltante : 0,
-        `"${detallePersonas.replace(/"/g, '""')}"`,
-        m.montoReportado,
-        m.montoRecibido,
-        m.montoSalida,
-        m.estado,
-        `"${(m.notaTesorero || '').replace(/"/g, '""')}"`,
+        m.id, m.fecha, m.tipo, m.modoRegistro || 'GENERAL', `"${m.actividad}"`, `"${m.descripcion}"`,
+        `"${m.responsable}"`, m.metodoPago, inv.esUnidades ? inv.producidas : '',
+        inv.esUnidades ? inv.precioUnitario : '', inv.esUnidades ? inv.unidadesPagadas : '',
+        inv.esUnidades ? inv.unidadesFiadas : '', inv.esUnidades ? inv.unidadesSinVender : '',
+        inv.esUnidades ? inv.totalPlataFaltante : 0, `"${detallePersonas}"`,
+        m.montoReportado, m.montoRecibido, m.montoSalida, m.estado, `"${m.notaTesorero || ''}"`
       ];
     });
 
-    rows.push([]);
-    rows.push(['', '', 'RESUMEN DE TESORERÍA', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '', '']);
-    rows.push(['', '', 'Total Entradas Verificadas en Caja', '', '', '', '', '', '', '', '', '', '', '', '', '', kpis.totalEntradasVerificadas, '', '', '']);
-    rows.push(['', '', 'Total Salidas / Egresos', '', '', '', '', '', '', '', '', '', '', '', '', '', '', kpis.totalSalidas, '', '']);
-    rows.push(['', '', 'Saldo Real en Caja', '', '', '', '', '', '', '', '', '', '', '', '', '', kpis.saldoRealEnCaja, '', '', '']);
-    rows.push(['', '', 'Pendiente por Recoger (En mano recaudadores)', '', '', '', '', '', '', '', '', '', '', '', '', kpis.pendientePorRecoger, '', '', '', '']);
-    rows.push(['', '', 'Cartera Fiados + Unidades Sin Vender en Calle', '', '', '', '', '', '', '', '', '', '', kpis.totalCarteraYSinVender, '', '', '', '', '', '']);
-    rows.push(['', '', 'Descuadre en Revisión', '', '', '', '', '', '', '', '', '', '', '', '', kpis.descuadreAcumulado, '', '', '', '']);
-
-    const csvContent =
-      '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
-
+    const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
     link.href = url;
-    link.setAttribute('download', `Libro_Unico_Tesoreria_${new Date().toISOString().split('T')[0]}.csv`);
+    link.setAttribute('download', `Libro_Tesoreria_${new Date().toISOString().split('T')[0]}.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Libro Único exportado a CSV (listo para abrir en Excel).', 'success');
+    showToast('Libro exportado a CSV.', 'success');
   };
 
   const movimientosFiltrados = useMemo(() => {
@@ -1049,21 +1020,21 @@ export default function App() {
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Recibido / Verificado
+            Verificado
           </span>
         );
       case 'PENDIENTE':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
             <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Pendiente por recoger
+            Pendiente
           </span>
         );
       case 'DESCUADRE':
         return (
           <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-            Descuadre en revisión
+            Descuadre
           </span>
         );
       case 'EGRESO_REGISTRADO':
@@ -1116,7 +1087,7 @@ export default function App() {
                   Tesorería & Recaudos Eclesiásticos
                 </h1>
                 <p className="text-xs text-indigo-200">
-                  Control transparente de actividades, arqueo y Libro Único de Caja
+                  Sincronizado en tiempo real por Supabase
                 </p>
               </div>
             </div>
@@ -1143,7 +1114,7 @@ export default function App() {
                 }`}
               >
                 {isTesoreroAuth ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                <span>Tesorería (Libro Único)</span>
+                <span>Tesorería</span>
                 {kpis.cantidadPendientes > 0 && (
                   <span className="ml-1 px-1.5 py-0.5 text-xs font-bold rounded-full bg-amber-400 text-indigo-950">
                     {kpis.cantidadPendientes}
@@ -1163,10 +1134,8 @@ export default function App() {
                 <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <HandCoins className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Acceso Autorizado Recaudadores</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Ingresa tu clave de recaudador para reportar ventas, inventario y abonos de actividades.
-                </p>
+                <h2 className="text-xl font-bold text-slate-900">Acceso Recaudadores</h2>
+                <p className="text-sm text-slate-500 mt-1">Ingresa tu PIN de recaudador.</p>
 
                 <form onSubmit={handleRecaudadorLogin} className="mt-6 space-y-4">
                   <div>
@@ -1183,12 +1152,11 @@ export default function App() {
                       <p className="text-xs text-rose-600 font-semibold mt-2">{recPinError}</p>
                     )}
                   </div>
-
                   <button
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
                   >
-                    Ingresar como Recaudador
+                    Ingresar
                   </button>
                 </form>
               </div>
@@ -1197,9 +1165,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">
-                      Sesión Activa: Recaudador Autorizado
-                    </span>
+                    <span className="text-sm font-bold text-slate-800">Recaudador Activo</span>
                   </div>
 
                   <div className="flex items-center gap-2 flex-wrap">
@@ -1209,7 +1175,7 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar mi contraseña
+                      Cambiar Contraseña
                     </button>
                     <button
                       type="button"
@@ -1217,7 +1183,7 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
-                      Bloquear Acceso Recaudador
+                      Bloquear
                     </button>
                   </div>
                 </div>
@@ -1238,9 +1204,7 @@ export default function App() {
                               <PlusCircle className="w-5 h-5 text-emerald-400" />
                             )}
                             <h2 className="font-bold text-base">
-                              {editingRecaudoId
-                                ? `Modificando Recaudo (${editingRecaudoId})`
-                                : 'Registrar Recaudo de Actividad'}
+                              {editingRecaudoId ? 'Modificar Recaudo' : 'Registrar Recaudo'}
                             </h2>
                           </div>
                           {editingRecaudoId && (
@@ -1253,11 +1217,6 @@ export default function App() {
                             </button>
                           )}
                         </div>
-                        <p className="text-xs text-indigo-100 mt-1">
-                          {editingRecaudoId
-                            ? 'Corrige cualquier dato equivocado y guarda los cambios.'
-                            : 'Registra ventas por unidades (con deudores/abonos) o recaudos generales.'}
-                        </p>
                       </div>
 
                       <form onSubmit={handleRegistrarRecaudo} className="p-6 space-y-4">
@@ -1272,7 +1231,7 @@ export default function App() {
                             }`}
                           >
                             <Package className="w-3.5 h-3.5" />
-                            Por Unidades / Inventario
+                            Por Unidades
                           </button>
                           <button
                             type="button"
@@ -1290,7 +1249,7 @@ export default function App() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
                               Fecha
                             </label>
                             <input
@@ -1298,18 +1257,18 @@ export default function App() {
                               required
                               value={recFecha}
                               onChange={(e) => setRecFecha(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 outline-none"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
                             />
                           </div>
 
                           <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
                               Actividad
                             </label>
                             <select
                               value={recActividad}
                               onChange={(e) => setRecActividad(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 outline-none"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                             >
                               {ACTIVIDADES_RECAUDO.map((act) => (
                                 <option key={act} value={act}>
@@ -1321,16 +1280,16 @@ export default function App() {
                         </div>
 
                         <div>
-                          <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                            Nombre del Recaudador Responsable
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                            Nombre del Recaudador
                           </label>
                           <input
                             type="text"
                             required
-                            placeholder="Ej. Hna. Marta Gómez"
+                            placeholder="Ej. Hna. Marta"
                             value={recNombre}
                             onChange={(e) => setRecNombre(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-600 focus:border-indigo-600 outline-none"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
                           />
                         </div>
 
@@ -1345,10 +1304,9 @@ export default function App() {
                                   type="number"
                                   min="1"
                                   required
-                                  placeholder="30"
                                   value={recCantidadProducida}
                                   onChange={(e) => setRecCantidadProducida(e.target.value)}
-                                  className="w-full px-3 py-2 rounded-lg border border-indigo-200 bg-white text-sm font-extrabold text-slate-900 focus:ring-2 focus:ring-indigo-600 outline-none"
+                                  className="w-full px-3 py-2 rounded-lg border border-indigo-200 bg-white text-sm font-extrabold text-slate-900"
                                 />
                               </div>
                               <div>
@@ -1360,16 +1318,13 @@ export default function App() {
                                   min="100"
                                   step="100"
                                   required
-                                  placeholder="12000"
                                   value={recPrecioUnitario}
                                   onChange={(e) => setRecPrecioUnitario(e.target.value)}
-                                  className="w-full px-3 py-2 rounded-lg border border-indigo-200 bg-white text-sm font-extrabold text-slate-900 focus:ring-2 focus:ring-indigo-600 outline-none"
+                                  className="w-full px-3 py-2 rounded-lg border border-indigo-200 bg-white text-sm font-extrabold text-slate-900"
                                 />
                               </div>
-                              <div className="col-span-2 flex items-center justify-between pt-2 border-t border-indigo-200/70 text-xs">
-                                <span className="font-semibold text-indigo-900">
-                                  Total Esperado ({resumenFormUnidades.producidas} unid.):
-                                </span>
+                              <div className="col-span-2 flex items-center justify-between pt-2 border-t border-indigo-200 text-xs">
+                                <span className="font-semibold text-indigo-900">Total Esperado:</span>
                                 <span className="font-extrabold text-indigo-950 text-sm">
                                   {formatCOP(resumenFormUnidades.totalEsperado)}
                                 </span>
@@ -1383,17 +1338,17 @@ export default function App() {
                                   Compradores y Deudores
                                 </span>
                                 <span className="text-[11px] font-semibold text-slate-500">
-                                  Quedan {resumenFormUnidades.unidadesSinVender} unid. libres
+                                  Quedan {resumenFormUnidades.unidadesSinVender} libres
                                 </span>
                               </div>
 
                               <div className="grid grid-cols-12 gap-2">
                                 <input
                                   type="text"
-                                  placeholder="Nombre persona..."
+                                  placeholder="Nombre..."
                                   value={nuevoCompNombre}
                                   onChange={(e) => setNuevoCompNombre(e.target.value)}
-                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs outline-none focus:border-indigo-600"
+                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                 />
                                 <input
                                   type="number"
@@ -1401,21 +1356,20 @@ export default function App() {
                                   placeholder="Cant."
                                   value={nuevoCompCantidad}
                                   onChange={(e) => setNuevoCompCantidad(e.target.value)}
-                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center outline-none focus:border-indigo-600"
+                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center"
                                 />
                                 <select
                                   value={nuevoCompEstado}
                                   onChange={(e) => setNuevoCompEstado(e.target.value)}
-                                  className="col-span-3 px-1.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold outline-none"
+                                  className="col-span-3 px-1.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
                                 >
                                   <option value="PAGADO">Pagado</option>
-                                  <option value="FIADO">Fiado / Abono</option>
+                                  <option value="FIADO">Fiado</option>
                                 </select>
                                 <button
                                   type="button"
                                   onClick={handleAgregarCompradorForm}
-                                  className="col-span-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center transition-colors"
-                                  title="Agregar persona"
+                                  className="col-span-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center"
                                 >
                                   <UserPlus className="w-4 h-4" />
                                 </button>
@@ -1423,17 +1377,14 @@ export default function App() {
 
                               {nuevoCompEstado === 'FIADO' && (
                                 <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
-                                  <label className="text-[11px] font-bold text-amber-900">
-                                    Abono inicial ($):
-                                  </label>
+                                  <label className="text-[11px] font-bold text-amber-900">Abono ($):</label>
                                   <input
                                     type="number"
                                     min="0"
                                     step="100"
-                                    placeholder="0"
                                     value={nuevoCompAbono}
                                     onChange={(e) => setNuevoCompAbono(e.target.value)}
-                                    className="w-32 px-2.5 py-1 rounded border border-amber-300 bg-white text-xs font-bold text-right"
+                                    className="w-32 px-2 py-1 rounded border border-amber-300 bg-white text-xs font-bold text-right"
                                   />
                                 </div>
                               )}
@@ -1442,27 +1393,17 @@ export default function App() {
                                 <div className="max-h-40 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200">
                                   {recCompradores.map((c) => {
                                     const totalC = c.cantidad * resumenFormUnidades.precio;
-                                    const abonoC =
-                                      c.estadoPago === 'PAGADO'
-                                        ? totalC
-                                        : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                    const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
                                     const saldoC = Math.max(0, totalC - abonoC);
 
                                     return (
-                                      <div
-                                        key={c.id}
-                                        className="px-2.5 py-2 flex items-center justify-between gap-2 text-xs"
-                                      >
+                                      <div key={c.id} className="px-2.5 py-2 flex items-center justify-between gap-2 text-xs">
                                         <div>
-                                          <span className="font-bold text-slate-800">
-                                            {c.nombre}
-                                          </span>
-                                          <span className="text-slate-500 ml-1">
-                                            ({c.cantidad} unid. = {formatCOP(totalC)})
-                                          </span>
+                                          <span className="font-bold text-slate-800">{c.nombre}</span>
+                                          <span className="text-slate-500 ml-1">({c.cantidad} unid)</span>
                                           {saldoC > 0 && (
                                             <span className="block text-[10px] text-rose-700 font-semibold">
-                                              Abonó: {formatCOP(abonoC)} | Debe: {formatCOP(saldoC)}
+                                              Debe: {formatCOP(saldoC)}
                                             </span>
                                           )}
                                         </div>
@@ -1471,9 +1412,7 @@ export default function App() {
                                             type="button"
                                             onClick={() => handleToggleEstadoCompradorForm(c.id)}
                                             className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                              saldoC === 0
-                                                ? 'bg-emerald-100 text-emerald-800'
-                                                : 'bg-rose-100 text-rose-800'
+                                              saldoC === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                             }`}
                                           >
                                             {saldoC === 0 ? 'Pagado' : 'Fiado'}
@@ -1492,74 +1431,46 @@ export default function App() {
                                 </div>
                               )}
                             </div>
-
-                            <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                              <div className="bg-emerald-50 p-2 rounded-xl border border-emerald-200">
-                                <span className="text-[10px] font-bold text-emerald-800 block">
-                                  En Mano ({resumenFormUnidades.unidadesPagadas})
-                                </span>
-                                <span className="font-extrabold text-emerald-900">
-                                  {formatCOP(resumenFormUnidades.plataRecaudada)}
-                                </span>
-                              </div>
-                              <div className="bg-rose-50 p-2 rounded-xl border border-rose-200">
-                                <span className="text-[10px] font-bold text-rose-800 block">
-                                  Fiados ({resumenFormUnidades.unidadesFiadas})
-                                </span>
-                                <span className="font-extrabold text-rose-900">
-                                  {formatCOP(resumenFormUnidades.plataFiada)}
-                                </span>
-                              </div>
-                              <div className="bg-amber-50 p-2 rounded-xl border border-amber-200">
-                                <span className="text-[10px] font-bold text-amber-800 block">
-                                  Sin Vender ({resumenFormUnidades.unidadesSinVender})
-                                </span>
-                                <span className="font-extrabold text-amber-900">
-                                  {formatCOP(resumenFormUnidades.plataSinVender)}
-                                </span>
-                              </div>
-                            </div>
                           </div>
                         ) : (
                           <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                              Valor Total Recaudado (COP $)
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                              Valor Total ($)
                             </label>
                             <input
                               type="number"
                               min="100"
                               step="100"
                               required
-                              placeholder="150000"
                               value={recMonto}
                               onChange={(e) => setRecMonto(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 focus:ring-2 focus:ring-indigo-600 outline-none"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900"
                             />
                           </div>
                         )}
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                              Descripción / Detalle
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                              Detalle
                             </label>
                             <input
                               type="text"
-                              placeholder="Opcional en modo unidades..."
+                              placeholder="Opcional..."
                               value={recDescripcion}
                               onChange={(e) => setRecDescripcion(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm focus:ring-2 focus:ring-indigo-600 outline-none"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
                             />
                           </div>
 
                           <div>
-                            <label className="block text-xs font-bold uppercase tracking-wider text-slate-600 mb-1.5">
-                              Método de Recaudo
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
+                              Método
                             </label>
                             <select
                               value={recMetodo}
                               onChange={(e) => setRecMetodo(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white focus:ring-2 focus:ring-indigo-600 outline-none"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                             >
                               <option value="Efectivo">Efectivo</option>
                               <option value="Transferencia / Nequi">Transferencia / Nequi</option>
@@ -1570,22 +1481,10 @@ export default function App() {
                         <button
                           type="submit"
                           className={`w-full py-3 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
-                            editingRecaudoId
-                              ? 'bg-amber-600 hover:bg-amber-700'
-                              : 'bg-emerald-600 hover:bg-emerald-700'
+                            editingRecaudoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
                           }`}
                         >
-                          {editingRecaudoId ? (
-                            <>
-                              <CheckCircle2 className="w-4 h-4" />
-                              Guardar Cambios del Recaudo
-                            </>
-                          ) : (
-                            <>
-                              <HandCoins className="w-4 h-4" />
-                              Enviar Recaudo a Tesorería
-                            </>
-                          )}
+                          {editingRecaudoId ? 'Guardar Cambios' : 'Enviar Recaudo'}
                         </button>
                       </form>
                     </div>
@@ -1594,14 +1493,7 @@ export default function App() {
                   <div className="lg:col-span-7 space-y-4">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                       <div className="flex items-center justify-between mb-4">
-                        <div>
-                          <h2 className="text-lg font-bold text-slate-900">
-                            Historial de Actividades y Cartera
-                          </h2>
-                          <p className="text-xs text-slate-500">
-                            Gestiona abonos de deudores y revisa el estado de entrega al tesorero.
-                          </p>
-                        </div>
+                        <h2 className="text-lg font-bold text-slate-900">Historial de Recaudos</h2>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
                           {movimientos.filter((m) => m.tipo === 'INGRESO').length} registros
                         </span>
@@ -1610,9 +1502,7 @@ export default function App() {
                       <div className="space-y-4">
                         {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">
-                              No hay registros de ingresos en la nube todavía. ¡Crea el primero!
-                            </p>
+                            <p className="text-sm font-semibold text-slate-600">No hay registros aún.</p>
                           </div>
                         ) : (
                           movimientos
@@ -1622,36 +1512,26 @@ export default function App() {
                               const isExpanded = !!expandedRows[item.id];
 
                               return (
-                                <div
-                                  key={item.id}
-                                  className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 hover:bg-white transition-all"
-                                >
+                                <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60">
                                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                     <div>
                                       <div className="flex items-center gap-2 flex-wrap">
                                         <span className="text-xs font-mono font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
                                           {item.id}
                                         </span>
-                                        <span className="font-bold text-slate-900 text-sm">
-                                          {item.actividad}
-                                        </span>
+                                        <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
                                       <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
                                       <p className="text-xs font-semibold text-slate-700 mt-1">
-                                        Responsable: {item.responsable} ({item.metodoPago})
+                                        Resp: {item.responsable} ({item.metodoPago})
                                       </p>
                                     </div>
 
-                                    <div className="flex sm:flex-col items-end justify-between gap-2 pt-2 sm:pt-0 border-t sm:border-t-0 border-slate-200">
-                                      <div className="text-right">
-                                        <span className="text-[11px] text-slate-500 block">
-                                          Recaudado en mano:
-                                        </span>
-                                        <span className="text-lg font-extrabold text-slate-900">
-                                          {formatCOP(item.montoReportado)}
-                                        </span>
-                                      </div>
+                                    <div className="flex sm:flex-col items-end justify-between gap-2">
+                                      <span className="text-lg font-extrabold text-slate-900">
+                                        {formatCOP(item.montoReportado)}
+                                      </span>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
                                         {item.estado !== 'VERIFICADO' && (
                                           <>
@@ -1659,18 +1539,13 @@ export default function App() {
                                               <button
                                                 type="button"
                                                 onClick={() => handleIniciarEdicionRecaudo(item)}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white shadow-xs transition-colors animate-pulse"
+                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
                                               >
-                                                <Edit3 className="w-3 h-3" />
                                                 Editar (Autorizado)
                                               </button>
                                             ) : item.solicitudEdicion ? (
-                                              <span
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800 border border-amber-300"
-                                                title={`Motivo: ${item.motivoEdicion}`}
-                                              >
-                                                <Clock className="w-3 h-3" />
-                                                Esperando permiso Tesorería
+                                              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                                                Esperando Permiso
                                               </span>
                                             ) : (
                                               <button
@@ -1679,9 +1554,8 @@ export default function App() {
                                                   setSolicitudEdicionModal(item);
                                                   setMotivoSolicitudEdicion('');
                                                 }}
-                                                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 hover:bg-indigo-50 text-slate-700 hover:text-indigo-800 border border-slate-300 transition-colors"
+                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300"
                                               >
-                                                <Lock className="w-3 h-3" />
                                                 Solicitar Edición
                                               </button>
                                             )}
@@ -1693,37 +1567,23 @@ export default function App() {
                                   </div>
 
                                   {inv.esUnidades && (
-                                    <div className="mt-3 pt-3 border-t border-slate-200/80 space-y-2.5">
+                                    <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
                                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                                        <div className="bg-white px-2.5 py-1.5 rounded-lg border border-slate-200">
+                                        <div className="bg-white px-2 py-1.5 rounded-lg border border-slate-200">
                                           <span className="text-slate-400 block">Producidas</span>
-                                          <span className="font-bold text-slate-800">
-                                            {inv.producidas} × {formatCOP(inv.precioUnitario)}
-                                          </span>
+                                          <span className="font-bold text-slate-800">{inv.producidas}</span>
                                         </div>
-                                        <div className="bg-emerald-50/70 px-2.5 py-1.5 rounded-lg border border-emerald-200">
-                                          <span className="text-emerald-700 block">
-                                            Recaudado ({inv.unidadesPagadas} pag.)
-                                          </span>
-                                          <span className="font-extrabold text-emerald-900">
-                                            {formatCOP(inv.plataPagada)}
-                                          </span>
+                                        <div className="bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-200">
+                                          <span className="text-emerald-700 block">Pagadas</span>
+                                          <span className="font-extrabold text-emerald-900">{formatCOP(inv.plataPagada)}</span>
                                         </div>
-                                        <div className="bg-rose-50/70 px-2.5 py-1.5 rounded-lg border border-rose-200">
-                                          <span className="text-rose-700 block">
-                                            Fiados ({inv.unidadesFiadas} unid.)
-                                          </span>
-                                          <span className="font-extrabold text-rose-900">
-                                            {formatCOP(inv.plataFiada)}
-                                          </span>
+                                        <div className="bg-rose-50 px-2 py-1.5 rounded-lg border border-rose-200">
+                                          <span className="text-rose-700 block">Fiados</span>
+                                          <span className="font-extrabold text-rose-900">{formatCOP(inv.plataFiada)}</span>
                                         </div>
-                                        <div className="bg-amber-50/70 px-2.5 py-1.5 rounded-lg border border-amber-200">
-                                          <span className="text-amber-700 block">
-                                            Sin vender ({inv.unidadesSinVender} unid.)
-                                          </span>
-                                          <span className="font-extrabold text-amber-900">
-                                            {formatCOP(inv.plataSinVender)}
-                                          </span>
+                                        <div className="bg-amber-50 px-2 py-1.5 rounded-lg border border-amber-200">
+                                          <span className="text-amber-700 block">Sin vender</span>
+                                          <span className="font-extrabold text-amber-900">{formatCOP(inv.plataSinVender)}</span>
                                         </div>
                                       </div>
 
@@ -1732,87 +1592,48 @@ export default function App() {
                                           <button
                                             type="button"
                                             onClick={() => toggleExpandRow(item.id)}
-                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950"
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800"
                                           >
                                             <Users className="w-3.5 h-3.5" />
-                                            {isExpanded
-                                              ? 'Ocultar lista de compradores y deudores'
-                                              : `Ver compradores, abonos y deudores (${item.compradores.length})`}
-                                            {isExpanded ? (
-                                              <ChevronUp className="w-3.5 h-3.5" />
-                                            ) : (
-                                              <ChevronDown className="w-3.5 h-3.5" />
-                                            )}
+                                            {isExpanded ? 'Ocultar compradores' : `Ver compradores (${item.compradores.length})`}
                                           </button>
 
                                           {isExpanded && (
-                                            <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 overflow-hidden">
+                                            <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
                                               {item.compradores.map((c) => {
                                                 const totalComp = c.cantidad * inv.precioUnitario;
-                                                const abonoActual =
-                                                  c.estadoPago === 'PAGADO'
-                                                    ? totalComp
-                                                    : Math.min(
-                                                        totalComp,
-                                                        Math.max(0, Number(c.montoAbonado) || 0)
-                                                      );
-                                                const saldoPendiente = Math.max(
-                                                  0,
-                                                  totalComp - abonoActual
-                                                );
+                                                const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : Math.min(totalComp, Number(c.montoAbonado) || 0);
+                                                const saldoPendiente = Math.max(0, totalComp - abonoActual);
 
                                                 return (
-                                                  <div
-                                                    key={c.id}
-                                                    className="px-3 py-2.5 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
-                                                  >
+                                                  <div key={c.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
                                                     <div>
-                                                      <span className="font-bold text-slate-800">
-                                                        {c.nombre}
-                                                      </span>
-                                                      <span className="text-slate-500 ml-1.5">
-                                                        • {c.cantidad} unid. ({formatCOP(totalComp)})
-                                                      </span>
+                                                      <span className="font-bold text-slate-800">{c.nombre}</span>
+                                                      <span className="text-slate-500 ml-1">• {c.cantidad} unid.</span>
                                                       {saldoPendiente > 0 && (
-                                                        <div className="text-[11px] mt-0.5 flex flex-wrap gap-2">
-                                                          <span className="text-emerald-700 font-semibold">
-                                                            Abonado: {formatCOP(abonoActual)}
-                                                          </span>
-                                                          <span className="text-rose-700 font-bold">
-                                                            Debe: {formatCOP(saldoPendiente)}
-                                                          </span>
-                                                        </div>
+                                                        <span className="block text-[10px] text-rose-700 font-bold">
+                                                          Debe: {formatCOP(saldoPendiente)}
+                                                        </span>
                                                       )}
                                                     </div>
-
-                                                    <div className="flex items-center gap-2 self-end sm:self-center">
+                                                    <div className="flex items-center gap-2">
                                                       {saldoPendiente > 0 && (
                                                         <button
                                                           type="button"
                                                           onClick={() => openAbonoModal(item, c)}
-                                                          className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-indigo-900 hover:bg-indigo-800 text-white shadow-xs transition-all flex items-center gap-1"
+                                                          className="px-2 py-1 rounded bg-indigo-900 text-white text-[10px] font-bold"
                                                         >
-                                                          <BadgeDollarSign className="w-3 h-3 text-emerald-300" />
                                                           Abonar
                                                         </button>
                                                       )}
                                                       <button
                                                         type="button"
-                                                        onClick={() =>
-                                                          handleTogglePagoCompradorExistente(
-                                                            item.id,
-                                                            c.id
-                                                          )
-                                                        }
-                                                        className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
-                                                          saldoPendiente === 0
-                                                            ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                                            : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                                        onClick={() => handleTogglePagoCompradorExistente(item.id, c.id)}
+                                                        className={`px-2 py-1 rounded text-[10px] font-bold ${
+                                                          saldoPendiente === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                                         }`}
                                                       >
-                                                        {saldoPendiente === 0
-                                                          ? 'Pagado ✓'
-                                                          : 'Saldar Todo'}
+                                                        {saldoPendiente === 0 ? 'Pagado' : 'Saldar'}
                                                       </button>
                                                     </div>
                                                   </div>
@@ -1822,15 +1643,6 @@ export default function App() {
                                           )}
                                         </div>
                                       )}
-                                    </div>
-                                  )}
-
-                                  {item.notaTesorero && (
-                                    <div className="mt-2.5 pt-2 border-t border-slate-200/80 text-xs text-slate-600 flex items-start gap-1.5">
-                                      <Info className="w-3.5 h-3.5 text-indigo-600 shrink-0 mt-0.5" />
-                                      <span>
-                                        <strong>Nota Tesorería:</strong> {item.notaTesorero}
-                                      </span>
                                     </div>
                                   )}
                                 </div>
@@ -1853,10 +1665,8 @@ export default function App() {
                 <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
                   <ShieldCheck className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Acceso Exclusivo Tesorería</h2>
-                <p className="text-sm text-slate-500 mt-1">
-                  Ingresa el PIN de tesorería para custodiar los fondos y llevar el Libro Único.
-                </p>
+                <h2 className="text-xl font-bold text-slate-900">Acceso Tesorería</h2>
+                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería.</p>
 
                 <form onSubmit={handleTesoreroLogin} className="mt-6 space-y-4">
                   <div>
@@ -1873,12 +1683,11 @@ export default function App() {
                       <p className="text-xs text-rose-600 font-semibold mt-2">{pinError}</p>
                     )}
                   </div>
-
                   <button
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
                   >
-                    Desbloquear Libro Único
+                    Ingresar
                   </button>
                 </form>
               </div>
@@ -1887,9 +1696,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">
-                      Sesión Activa: Tesorero General
-                    </span>
+                    <span className="text-sm font-bold text-slate-800">Tesorero Activo</span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -1898,19 +1705,18 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN Tesorería
+                      Cambiar PIN
                     </button>
                     <button
                       onClick={handleExportCSV}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Descargar Libro Excel (CSV)
+                      Descargar Excel
                     </button>
                     <button
                       onClick={() => setShowBorrarTodoModal(true)}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all"
-                      title="Borrar todos los registros de tesorería"
                     >
                       <Trash2 className="w-3.5 h-3.5" />
                       Borrar Todo
@@ -1927,206 +1733,86 @@ export default function App() {
 
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Total Entradas
-                      </span>
-                      <div className="p-1.5 bg-emerald-50 text-emerald-600 rounded-lg">
-                        <TrendingUp className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-lg font-extrabold text-slate-900 mt-2">
-                      {formatCOP(kpis.totalEntradasVerificadas)}
-                    </p>
-                    <p className="text-[11px] text-emerald-700 font-medium mt-1">
-                      Dinero contado en caja
-                    </p>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Entradas</span>
+                    <p className="text-lg font-extrabold text-slate-900 mt-2">{formatCOP(kpis.totalEntradasVerificadas)}</p>
                   </div>
-
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">
-                        Total Salidas
-                      </span>
-                      <div className="p-1.5 bg-rose-50 text-rose-600 rounded-lg">
-                        <TrendingDown className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-lg font-extrabold text-rose-600 mt-2">
-                      - {formatCOP(kpis.totalSalidas)}
-                    </p>
-                    <p className="text-[11px] text-slate-500 mt-1">Gastos e insumos pagados</p>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salidas</span>
+                    <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.totalSalidas)}</p>
                   </div>
-
-                  <div className="bg-gradient-to-br from-indigo-950 to-indigo-900 p-4 rounded-2xl shadow-md text-white">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">
-                        Saldo en Caja
-                      </span>
-                      <div className="p-1.5 bg-emerald-500/20 text-emerald-400 rounded-lg">
-                        <Wallet className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-xl font-extrabold text-emerald-400 mt-2">
-                      {formatCOP(kpis.saldoRealEnCaja)}
-                    </p>
-                    <p className="text-[11px] text-indigo-200 mt-1">Entradas - Salidas</p>
+                  <div className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo Caja</span>
+                    <p className="text-xl font-extrabold text-emerald-400 mt-2">{formatCOP(kpis.saldoRealEnCaja)}</p>
                   </div>
-
                   <div className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">
-                        Pendiente Recoger
-                      </span>
-                      <div className="p-1.5 bg-amber-100 text-amber-700 rounded-lg">
-                        <Clock className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-lg font-extrabold text-amber-700 mt-2">
-                      {formatCOP(kpis.pendientePorRecoger)}
-                    </p>
-                    <p className="text-[11px] text-amber-700/80 font-medium mt-1">
-                      {kpis.cantidadPendientes} entrega(s) por recibir
-                    </p>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Pendiente</span>
+                    <p className="text-lg font-extrabold text-amber-700 mt-2">{formatCOP(kpis.pendientePorRecoger)}</p>
                   </div>
-
                   <div className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">
-                        Cartera / En Calle
-                      </span>
-                      <div className="p-1.5 bg-indigo-100 text-indigo-700 rounded-lg">
-                        <ShoppingBag className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-lg font-extrabold text-indigo-900 mt-2">
-                      {formatCOP(kpis.totalCarteraYSinVender)}
-                    </p>
-                    <p className="text-[11px] text-indigo-700 font-medium mt-1">
-                      Fiados: {formatCOP(kpis.totalPlataFiadaCalle)} | Sin vender:{' '}
-                      {formatCOP(kpis.totalPlataSinVenderCalle)}
-                    </p>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">En Calle</span>
+                    <p className="text-lg font-extrabold text-indigo-900 mt-2">{formatCOP(kpis.totalCarteraYSinVender)}</p>
                   </div>
-
                   <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm">
-                    <div className="flex items-center justify-between">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">
-                        Descuadre Revisión
-                      </span>
-                      <div className="p-1.5 bg-rose-100 text-rose-700 rounded-lg">
-                        <AlertTriangle className="w-4 h-4" />
-                      </div>
-                    </div>
-                    <p className="text-lg font-extrabold text-rose-700 mt-2">
-                      {formatCOP(kpis.descuadreAcumulado)}
-                    </p>
-                    <p className="text-[11px] text-rose-700/80 font-medium mt-1">
-                      {kpis.cantidadDescuadres} novedad(es) en arqueo
-                    </p>
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre</span>
+                    <p className="text-lg font-extrabold text-rose-700 mt-2">{formatCOP(kpis.descuadreAcumulado)}</p>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                   <button
                     onClick={() => setTesoreroTab('BANDEJA')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'BANDEJA'
-                        ? 'bg-indigo-900 text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
+                      tesoreroTab === 'BANDEJA' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
                     }`}
                   >
-                    <Calculator className="w-4 h-4" />
-                    Recepción, Arqueo y Permisos
-                    {(kpis.cantidadPendientes > 0 ||
-                      kpis.cantidadDescuadres > 0 ||
-                      kpis.cantidadSolicitudesEdicion > 0) && (
-                      <span className="px-2 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
-                        {kpis.cantidadPendientes +
-                          kpis.cantidadDescuadres +
-                          kpis.cantidadSolicitudesEdicion}
-                      </span>
-                    )}
+                    Recepción y Permisos ({kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesEdicion})
                   </button>
-
                   <button
                     onClick={() => setTesoreroTab('EGRESOS')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'EGRESOS'
-                        ? 'bg-indigo-900 text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
+                      tesoreroTab === 'EGRESOS' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
                     }`}
                   >
-                    <Receipt className="w-4 h-4" />
-                    Registrar Salida / Gasto
+                    Registrar Gasto
                   </button>
-
                   <button
                     onClick={() => setTesoreroTab('LIBRO')}
-                    className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'LIBRO'
-                        ? 'bg-indigo-900 text-white shadow-sm'
-                        : 'bg-white text-slate-600 hover:bg-slate-100 border border-slate-200'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold ${
+                      tesoreroTab === 'LIBRO' ? 'bg-indigo-900 text-white' : 'bg-white text-slate-600 border'
                     }`}
                   >
-                    <FileSpreadsheet className="w-4 h-4" />
-                    Libro Único Completo ({movimientos.length})
+                    Libro Único ({movimientos.length})
                   </button>
                 </div>
 
                 {tesoreroTab === 'BANDEJA' && (
                   <div className="space-y-6">
                     {kpis.cantidadSolicitudesEdicion > 0 && (
-                      <div className="bg-indigo-50/80 rounded-2xl border-2 border-indigo-200 p-5 shadow-xs">
-                        <div className="flex items-center justify-between mb-3">
-                          <div className="flex items-center gap-2">
-                            <ShieldCheck className="w-5 h-5 text-indigo-800" />
-                            <h3 className="font-bold text-indigo-950 text-sm">
-                              Solicitudes de Autorización para Modificar Registros ({kpis.cantidadSolicitudesEdicion})
-                            </h3>
-                          </div>
-                          <span className="text-xs font-semibold text-indigo-700">
-                            Control de Auditoría
-                          </span>
-                        </div>
-
+                      <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5">
+                        <h3 className="font-bold text-indigo-950 text-sm mb-3">Solicitudes de Edición</h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {movimientos
                             .filter((m) => m.solicitudEdicion)
                             .map((item) => (
-                              <div
-                                key={item.id}
-                                className="bg-white p-4 rounded-xl border border-indigo-200 flex flex-col justify-between gap-3"
-                              >
+                              <div key={item.id} className="bg-white p-4 rounded-xl border flex flex-col justify-between gap-3">
                                 <div>
-                                  <div className="flex items-center justify-between gap-2">
-                                    <span className="text-xs font-mono font-bold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">
-                                      {item.id} — {item.actividad}
-                                    </span>
-                                    <span className="text-xs font-bold text-slate-700">
-                                      {formatCOP(item.montoReportado)}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs font-semibold text-slate-800 mt-1.5">
-                                    Recaudadora: {item.responsable}
-                                  </p>
-                                  <p className="text-xs text-amber-900 bg-amber-50 p-2 rounded-lg border border-amber-200 mt-1.5">
-                                    <strong>Motivo del cambio:</strong> "{item.motivoEdicion}"
+                                  <span className="text-xs font-mono font-bold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">
+                                    {item.id} — {item.actividad}
+                                  </span>
+                                  <p className="text-xs text-amber-900 bg-amber-50 p-2 rounded mt-2">
+                                    "{item.motivoEdicion}"
                                   </p>
                                 </div>
-
                                 <div className="flex items-center gap-2">
                                   <button
-                                    type="button"
                                     onClick={() => handleAutorizarEdicionTesorero(item, true)}
-                                    className="flex-1 py-2 px-3 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold flex items-center justify-center gap-1.5"
+                                    className="flex-1 py-1.5 bg-emerald-600 text-white text-xs font-bold rounded"
                                   >
-                                    <Unlock className="w-3.5 h-3.5" />
-                                    Autorizar Edición
+                                    Autorizar
                                   </button>
                                   <button
-                                    type="button"
                                     onClick={() => handleAutorizarEdicionTesorero(item, false)}
-                                    className="py-2 px-3 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold"
+                                    className="py-1.5 px-3 bg-rose-50 text-rose-700 text-xs font-bold rounded"
                                   >
                                     Rechazar
                                   </button>
@@ -2138,176 +1824,56 @@ export default function App() {
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <Clock className="w-5 h-5 text-amber-600" />
-                            <h3 className="font-bold text-slate-900">
-                              Pendientes por Recoger ({kpis.cantidadPendientes})
-                            </h3>
-                          </div>
-                          <span className="text-sm font-bold text-amber-700">
-                            {formatCOP(kpis.pendientePorRecoger)}
-                          </span>
-                        </div>
-
+                      <div className="bg-white rounded-2xl border p-6">
+                        <h3 className="font-bold text-slate-900 mb-4">Pendientes por Recoger</h3>
                         {movimientos.filter((m) => m.estado === 'PENDIENTE').length === 0 ? (
-                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <CheckCircle2 className="w-8 h-8 text-emerald-500 mx-auto mb-2" />
-                            <p className="text-sm font-semibold text-slate-700">
-                              ¡Todo al día! No hay recaudos pendientes por recoger.
-                            </p>
-                          </div>
+                          <p className="text-sm text-slate-500 py-6 text-center">Todo al día.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
                               .filter((m) => m.estado === 'PENDIENTE')
-                              .map((item) => {
-                                const inv = calcularResumenInventario(item);
-                                return (
-                                  <div
-                                    key={item.id}
-                                    className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-2.5"
-                                  >
-                                    <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                                      <div>
-                                        <div className="flex items-center gap-2 flex-wrap">
-                                          <span className="text-xs font-mono font-bold text-amber-800 bg-amber-100 px-2 py-0.5 rounded">
-                                            {item.id}
-                                          </span>
-                                          <span className="font-bold text-slate-900 text-sm">
-                                            {item.actividad}
-                                          </span>
-                                        </div>
-                                        <p className="text-xs text-slate-600 mt-0.5">
-                                          {item.descripcion}
-                                        </p>
-                                        <p className="text-xs font-semibold text-slate-700 mt-1">
-                                          Entregará: {item.responsable} ({item.metodoPago}) •{' '}
-                                          {item.fecha}
-                                        </p>
-                                      </div>
-
-                                      <div className="flex sm:flex-col items-end justify-between gap-2">
-                                        <span className="text-base font-extrabold text-slate-900">
-                                          {formatCOP(item.montoReportado)}
-                                        </span>
-                                        <button
-                                          onClick={() => openArqueoModal(item)}
-                                          className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-indigo-900 hover:bg-indigo-800 text-white text-xs font-bold shadow-xs transition-all"
-                                        >
-                                          <Calculator className="w-3.5 h-3.5 text-emerald-400" />
-                                          Recibir y Contar
-                                        </button>
-                                      </div>
-                                    </div>
-
-                                    {inv.esUnidades && inv.totalUnidadesFaltantes > 0 && (
-                                      <div className="text-[11px] bg-white/90 px-3 py-2 rounded-lg border border-amber-200/80 text-slate-700 flex flex-wrap justify-between gap-2">
-                                        <span>
-                                          Fiados: <strong>{inv.unidadesFiadas} unid.</strong> (
-                                          {formatCOP(inv.plataFiada)})
-                                        </span>
-                                        <span>
-                                          Sin vender: <strong>{inv.unidadesSinVender} unid.</strong> (
-                                          {formatCOP(inv.plataSinVender)})
-                                        </span>
-                                        <span className="text-amber-900 font-bold">
-                                          Falta en calle: {formatCOP(inv.totalPlataFaltante)}
-                                        </span>
-                                      </div>
-                                    )}
+                              .map((item) => (
+                                <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 flex justify-between items-center gap-3">
+                                  <div>
+                                    <span className="font-bold text-sm text-slate-900">{item.actividad}</span>
+                                    <p className="text-xs text-slate-600">Resp: {item.responsable}</p>
                                   </div>
-                                );
-                              })}
+                                  <div className="text-right">
+                                    <span className="font-extrabold text-sm block">{formatCOP(item.montoReportado)}</span>
+                                    <button
+                                      onClick={() => openArqueoModal(item)}
+                                      className="mt-1 px-3 py-1 bg-indigo-900 text-white text-xs font-bold rounded"
+                                    >
+                                      Recibir
+                                    </button>
+                                  </div>
+                                </div>
+                              ))}
                           </div>
                         )}
                       </div>
 
-                      <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6">
-                        <div className="flex items-center justify-between mb-4">
-                          <div className="flex items-center gap-2">
-                            <AlertTriangle className="w-5 h-5 text-rose-600" />
-                            <h3 className="font-bold text-slate-900">
-                              Descuadres en Revisión ({kpis.cantidadDescuadres})
-                            </h3>
-                          </div>
-                          <span className="text-sm font-bold text-rose-700">
-                            {formatCOP(kpis.descuadreAcumulado)}
-                          </span>
-                        </div>
-
+                      <div className="bg-white rounded-2xl border p-6">
+                        <h3 className="font-bold text-slate-900 mb-4">Descuadres en Revisión</h3>
                         {movimientos.filter((m) => m.estado === 'DESCUADRE').length === 0 ? (
-                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <ShieldCheck className="w-8 h-8 text-indigo-500 mx-auto mb-2" />
-                            <p className="text-sm font-semibold text-slate-700">
-                              Sin descuadres pendientes de auditoría.
-                            </p>
-                          </div>
+                          <p className="text-sm text-slate-500 py-6 text-center">Sin descuadres.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
                               .filter((m) => m.estado === 'DESCUADRE')
-                              .map((item) => {
-                                const diferencia = item.montoReportado - item.montoRecibido;
-                                return (
-                                  <div
-                                    key={item.id}
-                                    className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-3"
-                                  >
-                                    <div className="flex justify-between items-start gap-2">
-                                      <div>
-                                        <span className="text-xs font-mono font-bold text-rose-800 bg-rose-100 px-2 py-0.5 rounded">
-                                          {item.id}
-                                        </span>
-                                        <h4 className="font-bold text-slate-900 text-sm mt-1">
-                                          {item.actividad} — {item.responsable}
-                                        </h4>
-                                        <p className="text-xs text-slate-600">{item.descripcion}</p>
-                                      </div>
-                                      <span className="px-2.5 py-1 rounded-lg bg-rose-600 text-white text-xs font-extrabold">
-                                        Faltan {formatCOP(diferencia)}
-                                      </span>
-                                    </div>
-
-                                    <div className="grid grid-cols-2 gap-2 text-xs bg-white p-2.5 rounded-lg border border-rose-100">
-                                      <div>
-                                        <span className="text-slate-400 block">Reportado:</span>
-                                        <span className="font-bold text-slate-800">
-                                          {formatCOP(item.montoReportado)}
-                                        </span>
-                                      </div>
-                                      <div>
-                                        <span className="text-slate-400 block">Contado en caja:</span>
-                                        <span className="font-bold text-emerald-700">
-                                          {formatCOP(item.montoRecibido)}
-                                        </span>
-                                      </div>
-                                    </div>
-
-                                    {item.notaTesorero && (
-                                      <p className="text-xs text-rose-800 italic">
-                                        "{item.notaTesorero}"
-                                      </p>
-                                    )}
-
-                                    <div className="flex flex-wrap gap-2 pt-1">
-                                      <button
-                                        onClick={() => openArqueoModal(item)}
-                                        className="px-3 py-1.5 rounded-lg bg-white border border-slate-300 hover:bg-slate-50 text-slate-700 text-xs font-bold"
-                                      >
-                                        Recontar Dinero
-                                      </button>
-                                      <button
-                                        onClick={() => handleResolverDescuadre(item)}
-                                        className="px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold"
-                                      >
-                                        Aprobar Ajuste y Cerrar Revisión
-                                      </button>
-                                    </div>
+                              .map((item) => (
+                                <div key={item.id} className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2">
+                                  <div className="flex justify-between">
+                                    <span className="font-bold text-sm">{item.actividad}</span>
+                                    <button
+                                      onClick={() => handleResolverDescuadre(item)}
+                                      className="px-2.5 py-1 bg-emerald-600 text-white text-xs font-bold rounded"
+                                    >
+                                      Cerrar Revisión
+                                    </button>
                                   </div>
-                                );
-                              })}
+                                </div>
+                              ))}
                           </div>
                         )}
                       </div>
@@ -2316,354 +1882,116 @@ export default function App() {
                 )}
 
                 {tesoreroTab === 'EGRESOS' && (
-                  <div className="max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                  <div className="max-w-2xl bg-white rounded-2xl border shadow-sm overflow-hidden">
                     <div className="bg-slate-900 px-6 py-4 text-white">
-                      <h3 className="font-bold text-base flex items-center gap-2">
-                        <ArrowDownRight className="w-5 h-5 text-rose-400" />
-                        Registrar Salida de Dinero (Egreso de Caja)
-                      </h3>
-                      <p className="text-xs text-slate-300 mt-0.5">
-                        Todo gasto registrado se descontará automáticamente del Saldo Real en Caja.
-                      </p>
+                      <h3 className="font-bold text-base">Registrar Gasto</h3>
                     </div>
-
                     <form onSubmit={handleRegistrarEgreso} className="p-6 space-y-4">
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Fecha del Gasto
-                          </label>
-                          <input
-                            type="date"
-                            required
-                            value={egrFecha}
-                            onChange={(e) => setEgrFecha(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Categoría del Egreso
-                          </label>
-                          <select
-                            value={egrCategoria}
-                            onChange={(e) => setEgrCategoria(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                          >
-                            {CATEGORIAS_EGRESO.map((cat) => (
-                              <option key={cat} value={cat}>
-                                {cat}
-                              </option>
-                            ))}
-                          </select>
-                        </div>
+                      <div className="grid grid-cols-2 gap-4">
+                        <input
+                          type="date"
+                          required
+                          value={egrFecha}
+                          onChange={(e) => setEgrFecha(e.target.value)}
+                          className="px-3.5 py-2.5 rounded-xl border text-sm"
+                        />
+                        <select
+                          value={egrCategoria}
+                          onChange={(e) => setEgrCategoria(e.target.value)}
+                          className="px-3.5 py-2.5 rounded-xl border text-sm bg-white"
+                        >
+                          {CATEGORIAS_EGRESO.map((cat) => (
+                            <option key={cat} value={cat}>{cat}</option>
+                          ))}
+                        </select>
                       </div>
-
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                          Concepto / Detalle del Pago
-                        </label>
+                      <input
+                        type="text"
+                        required
+                        placeholder="Concepto del gasto..."
+                        value={egrConcepto}
+                        onChange={(e) => setEgrConcepto(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border text-sm"
+                      />
+                      <div className="grid grid-cols-2 gap-4">
                         <input
                           type="text"
                           required
-                          placeholder="Ej. Compra de gas, carne y desechables para venta dominical"
-                          value={egrConcepto}
-                          onChange={(e) => setEgrConcepto(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          placeholder="Autoriza..."
+                          value={egrResponsable}
+                          onChange={(e) => setEgrResponsable(e.target.value)}
+                          className="px-3.5 py-2.5 rounded-xl border text-sm"
                         />
-                      </div>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Persona que recibe / Autoriza
-                          </label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ej. Hno. Carlos Ruiz"
-                            value={egrResponsable}
-                            onChange={(e) => setEgrResponsable(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
-                          />
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Valor de Salida (COP $)
-                          </label>
-                          <input
-                            type="number"
-                            min="100"
-                            step="100"
-                            required
-                            placeholder="85000"
-                            value={egrMonto}
-                            onChange={(e) => setEgrMonto(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-rose-700"
-                          />
-                          {egrMonto > 0 && (
-                            <p className="text-xs text-rose-600 font-semibold mt-1">
-                              {formatCOP(egrMonto)}
-                            </p>
-                          )}
-                        </div>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                          Número de Factura o Soporte (Opcional)
-                        </label>
                         <input
-                          type="text"
-                          placeholder="Ej. Recibo #098 de Supermercado"
-                          value={egrNota}
-                          onChange={(e) => setEgrNota(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          type="number"
+                          min="100"
+                          step="100"
+                          required
+                          placeholder="Valor ($)"
+                          value={egrMonto}
+                          onChange={(e) => setEgrMonto(e.target.value)}
+                          className="px-3.5 py-2.5 rounded-xl border text-sm font-bold text-rose-700"
                         />
                       </div>
-
                       <button
                         type="submit"
-                        className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all"
+                        className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm"
                       >
-                        Registrar Salida en el Libro Único
+                        Registrar Salida
                       </button>
                     </form>
                   </div>
                 )}
 
                 {tesoreroTab === 'LIBRO' && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-200 flex flex-col md:flex-row md:items-center justify-between gap-4">
-                      <div>
-                        <h3 className="text-lg font-bold text-slate-900">
-                          Libro Único de Tesorería
-                        </h3>
-                        <p className="text-xs text-slate-500">
-                          Registro histórico unificado de ingresos, arqueos, descuadres y salidas.
-                        </p>
-                      </div>
-
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="relative">
-                          <Search className="w-4 h-4 text-slate-400 absolute left-3 top-2.5" />
-                          <input
-                            type="text"
-                            placeholder="Buscar actividad o persona..."
-                            value={busquedaLibro}
-                            onChange={(e) => setBusquedaLibro(e.target.value)}
-                            className="pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs w-52 focus:ring-2 focus:ring-indigo-600 outline-none"
-                          />
-                        </div>
-
-                        <div className="flex items-center gap-1.5">
-                          <Filter className="w-4 h-4 text-slate-400" />
-                          <select
-                            value={filtroLibro}
-                            onChange={(e) => setFiltroLibro(e.target.value)}
-                            className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white"
-                          >
-                            <option value="TODOS">Todos los movimientos</option>
-                            <option value="VERIFICADO">Solo Entradas Verificadas</option>
-                            <option value="PENDIENTE">Pendientes por Recoger</option>
-                            <option value="DESCUADRE">Descuadres en Revisión</option>
-                            <option value="EGRESOS">Solo Salidas / Egresos</option>
-                          </select>
-                        </div>
+                  <div className="bg-white rounded-2xl border shadow-sm overflow-hidden">
+                    <div className="p-5 border-b flex justify-between gap-4 flex-wrap">
+                      <h3 className="text-lg font-bold text-slate-900">Libro Único</h3>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Buscar..."
+                          value={busquedaLibro}
+                          onChange={(e) => setBusquedaLibro(e.target.value)}
+                          className="px-3 py-2 rounded-xl border text-xs"
+                        />
+                        <select
+                          value={filtroLibro}
+                          onChange={(e) => setFiltroLibro(e.target.value)}
+                          className="px-3 py-2 rounded-xl border text-xs font-semibold bg-white"
+                        >
+                          <option value="TODOS">Todos</option>
+                          <option value="VERIFICADO">Verificados</option>
+                          <option value="PENDIENTE">Pendientes</option>
+                          <option value="DESCUADRE">Descuadres</option>
+                        </select>
                       </div>
                     </div>
-
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase tracking-wider border-b border-slate-200">
-                            <th className="py-3.5 px-4 font-bold">Fecha / ID</th>
-                            <th className="py-3.5 px-4 font-bold">Actividad / Concepto</th>
-                            <th className="py-3.5 px-4 font-bold">Responsable</th>
-                            <th className="py-3.5 px-4 font-bold text-right">Reportado</th>
-                            <th className="py-3.5 px-4 font-bold text-right text-emerald-800">
-                              Entrada Real
-                            </th>
-                            <th className="py-3.5 px-4 font-bold text-right text-rose-800">
-                              Salida
-                            </th>
-                            <th className="py-3.5 px-4 font-bold">Estado</th>
-                            <th className="py-3.5 px-4 font-bold text-center">Acción</th>
+                          <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b">
+                            <th className="py-3 px-4">Fecha / ID</th>
+                            <th className="py-3 px-4">Actividad</th>
+                            <th className="py-3 px-4">Responsable</th>
+                            <th className="py-3 px-4 text-right">Reportado</th>
+                            <th className="py-3 px-4 text-right">Entrada Real</th>
+                            <th className="py-3 px-4 text-right">Salida</th>
+                            <th className="py-3 px-4">Estado</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 text-sm">
-                          {movimientosFiltrados.length === 0 ? (
-                            <tr>
-                              <td colSpan={8} className="text-center py-10 text-slate-500 text-xs">
-                                No hay movimientos registrados en este momento.
-                              </td>
+                        <tbody className="divide-y text-sm">
+                          {movimientosFiltrados.map((m) => (
+                            <tr key={m.id} className="hover:bg-slate-50">
+                              <td className="py-3 px-4 text-xs font-semibold">{m.fecha}<div className="text-[10px] text-slate-400">{m.id}</div></td>
+                              <td className="py-3 px-4 text-xs font-bold">{m.actividad}<div className="text-slate-600 font-normal">{m.descripcion}</div></td>
+                              <td className="py-3 px-4 text-xs">{m.responsable}</td>
+                              <td className="py-3 px-4 text-right text-xs">{m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}</td>
+                              <td className="py-3 px-4 text-right text-xs font-extrabold text-emerald-700">{m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}</td>
+                              <td className="py-3 px-4 text-right text-xs font-extrabold text-rose-600">{m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}</td>
+                              <td className="py-3 px-4">{renderEstadoBadge(m)}</td>
                             </tr>
-                          ) : (
-                            movimientosFiltrados.map((m) => {
-                              const inv = calcularResumenInventario(m);
-                              const isExpanded = !!expandedRows[m.id];
-
-                              return (
-                                <React.Fragment key={m.id}>
-                                  <tr className="hover:bg-slate-50/80 transition-colors">
-                                    <td className="py-3.5 px-4 whitespace-nowrap">
-                                      <div className="font-semibold text-slate-800 text-xs">
-                                        {m.fecha}
-                                      </div>
-                                      <div className="font-mono text-[11px] text-slate-400">{m.id}</div>
-                                    </td>
-                                    <td className="py-3.5 px-4 max-w-xs">
-                                      <div className="flex items-center gap-1.5 flex-wrap">
-                                        <span className="font-bold text-slate-900 text-xs">
-                                          {m.actividad}
-                                        </span>
-                                        {inv.esUnidades && (
-                                          <span className="text-[10px] font-bold px-1.5 py-0.5 rounded bg-indigo-50 text-indigo-800 border border-indigo-200">
-                                            {inv.unidadesPagadas}/{inv.producidas} unid. pagadas
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div
-                                        className="text-xs text-slate-600 truncate"
-                                        title={m.descripcion}
-                                      >
-                                        {m.descripcion}
-                                      </div>
-                                      {inv.esUnidades && inv.totalUnidadesFaltantes > 0 && (
-                                        <div className="text-[11px] font-semibold text-amber-800 mt-0.5">
-                                          Faltan {inv.totalUnidadesFaltantes} unid. por recoger (
-                                          {formatCOP(inv.totalPlataFaltante)})
-                                        </div>
-                                      )}
-                                      {inv.esUnidades &&
-                                        m.compradores &&
-                                        m.compradores.length > 0 && (
-                                          <button
-                                            type="button"
-                                            onClick={() => toggleExpandRow(m.id)}
-                                            className="mt-1 inline-flex items-center gap-1 text-[11px] font-bold text-indigo-700 hover:underline"
-                                          >
-                                            <Users className="w-3 h-3" />
-                                            {isExpanded
-                                              ? 'Ocultar compradores'
-                                              : `Ver ${m.compradores.length} compradores/deudores`}
-                                          </button>
-                                        )}
-                                      {m.notaTesorero && (
-                                        <div className="text-[11px] text-indigo-700 mt-0.5 italic">
-                                          Nota: {m.notaTesorero}
-                                        </div>
-                                      )}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap text-xs font-medium text-slate-700">
-                                      {m.responsable}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs text-slate-500 font-medium">
-                                      {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-emerald-700">
-                                      {m.montoRecibido > 0 ? `+ ${formatCOP(m.montoRecibido)}` : '—'}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap text-right text-xs font-extrabold text-rose-600">
-                                      {m.montoSalida > 0 ? `- ${formatCOP(m.montoSalida)}` : '—'}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap">
-                                      {renderEstadoBadge(m)}
-                                    </td>
-                                    <td className="py-3.5 px-4 whitespace-nowrap text-center">
-                                      {(m.estado === 'PENDIENTE' || m.estado === 'DESCUADRE') && (
-                                        <button
-                                          onClick={() => openArqueoModal(m)}
-                                          className="px-2.5 py-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 text-xs font-bold transition-colors"
-                                        >
-                                          Arqueo
-                                        </button>
-                                      )}
-                                    </td>
-                                  </tr>
-
-                                  {inv.esUnidades &&
-                                    isExpanded &&
-                                    m.compradores &&
-                                    m.compradores.length > 0 && (
-                                      <tr className="bg-indigo-50/40">
-                                        <td colSpan={8} className="px-6 py-3">
-                                          <div className="bg-white rounded-xl border border-indigo-100 p-3">
-                                            <div className="flex flex-wrap items-center justify-between gap-2 pb-2 mb-2 border-b border-slate-100 text-xs">
-                                              <span className="font-bold text-indigo-950">
-                                                Detalle de Inventario y Compradores — {m.actividad} (
-                                                {inv.producidas} producidas ×{' '}
-                                                {formatCOP(inv.precioUnitario)})
-                                              </span>
-                                              <div className="flex gap-3 text-[11px] font-bold">
-                                                <span className="text-emerald-700">
-                                                  Pagadas: {inv.unidadesPagadas} (
-                                                  {formatCOP(inv.plataPagada)})
-                                                </span>
-                                                <span className="text-rose-700">
-                                                  Fiadas: {inv.unidadesFiadas} (
-                                                  {formatCOP(inv.plataFiada)})
-                                                </span>
-                                                <span className="text-amber-700">
-                                                  Sin vender: {inv.unidadesSinVender} (
-                                                  {formatCOP(inv.plataSinVender)})
-                                                </span>
-                                              </div>
-                                            </div>
-                                            <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-2">
-                                              {m.compradores.map((c) => {
-                                                const totalC = c.cantidad * inv.precioUnitario;
-                                                const abonoC =
-                                                  c.estadoPago === 'PAGADO'
-                                                    ? totalC
-                                                    : Math.min(
-                                                        totalC,
-                                                        Math.max(0, Number(c.montoAbonado) || 0)
-                                                      );
-                                                const saldoC = Math.max(0, totalC - abonoC);
-
-                                                return (
-                                                  <div
-                                                    key={c.id}
-                                                    className="flex items-center justify-between px-3 py-1.5 rounded-lg border border-slate-200 bg-slate-50/70 text-xs"
-                                                  >
-                                                    <div>
-                                                      <span className="font-bold text-slate-800">
-                                                        {c.nombre}
-                                                      </span>
-                                                      <span className="text-slate-500 block text-[11px]">
-                                                        {c.cantidad} unid. ({formatCOP(totalC)})
-                                                      </span>
-                                                      {saldoC > 0 && abonoC > 0 && (
-                                                        <span className="text-[10px] font-bold text-indigo-700 block">
-                                                          Abonó: {formatCOP(abonoC)} | Debe:{' '}
-                                                          {formatCOP(saldoC)}
-                                                        </span>
-                                                      )}
-                                                    </div>
-                                                    <span
-                                                      className={`px-2 py-0.5 rounded-full text-[10px] font-extrabold ${
-                                                        saldoC === 0
-                                                          ? 'bg-emerald-100 text-emerald-800'
-                                                          : 'bg-rose-100 text-rose-800'
-                                                      }`}
-                                                    >
-                                                      {saldoC === 0 ? 'PAGADO' : 'FIADO'}
-                                                    </span>
-                                                  </div>
-                                                );
-                                              })}
-                                            </div>
-                                          </div>
-                                        </td>
-                                      </tr>
-                                    )}
-                                </React.Fragment>
-                              );
-                            })
-                          )}
+                          ))}
                         </tbody>
                       </table>
                     </div>
@@ -2675,44 +2003,24 @@ export default function App() {
         )}
       </main>
 
+      {/* Modales secundarios */}
       {showCambiarPinRecaudador && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Cambiar Contraseña Recaudador</h3>
-              <button onClick={() => setShowCambiarPinRecaudador(false)} className="text-indigo-200 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleGuardarNuevoPinRec} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Nueva Contraseña / PIN
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Nueva contraseña..."
-                  value={nuevoPinRecInput}
-                  onChange={(e) => setNuevoPinRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-indigo-600"
-                  autoFocus
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCambiarPinRecaudador(false)}
-                  className="flex-1 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-indigo-900 text-white text-xs font-bold"
-                >
-                  Guardar
-                </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="font-bold text-base">Cambiar PIN Recaudador</h3>
+            <form onSubmit={handleGuardارNuevoPinRec => {}}>
+              <input
+                type="password"
+                required
+                placeholder="Nuevo PIN..."
+                value={nuevoPinRecInput}
+                onChange={(e) => setNuevoPinRecInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 rounded-xl border text-sm mb-4"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" onClick={handleGuardarNuevoPinRec} className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Guardar</button>
               </div>
             </form>
           </div>
@@ -2720,145 +2028,56 @@ export default function App() {
       )}
 
       {showCambiarPinTesorero && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Cambiar PIN Tesorería</h3>
-              <button onClick={() => setShowCambiarPinTesorero(false)} className="text-indigo-200 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4">
+            <h3 className="font-bold text-base">Cambiar PIN Tesorería</h3>
+            <input
+              type="password"
+              required
+              placeholder="Nuevo PIN..."
+              value={nuevoPinTesInput}
+              onChange={(e) => setNuevoPinTesInput(e.target.value)}
+              className="w-full px-3.5 py-2.5 rounded-xl border text-sm mb-4"
+              autoFocus
+            />
+            <div className="flex gap-2">
+              <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button type="button" onClick={handleGuardarNuevoPinTes} className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Guardar</button>
             </div>
-            <form onSubmit={handleGuardarNuevoPinTes} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Nuevo PIN Tesorería
-                </label>
-                <input
-                  type="password"
-                  required
-                  placeholder="Nuevo PIN..."
-                  value={nuevoPinTesInput}
-                  onChange={(e) => setNuevoPinTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm outline-none focus:ring-2 focus:ring-indigo-600"
-                  autoFocus
-                />
-              </div>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setShowCambiarPinTesorero(false)}
-                  className="flex-1 py-2 rounded-xl border border-slate-300 text-slate-700 text-xs font-semibold"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2 rounded-xl bg-indigo-900 text-white text-xs font-bold"
-                >
-                  Guardar
-                </button>
-              </div>
-            </form>
           </div>
         </div>
       )}
 
       {showBorrarTodoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="bg-rose-900 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base flex items-center gap-2">
-                <AlertTriangle className="w-5 h-5 text-amber-300" />
-                Confirmar Borrado Total
-              </h3>
-              <button onClick={() => setShowBorrarTodoModal(false)} className="text-rose-200 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4 text-sm text-slate-600">
-              <p>
-                Estás a punto de eliminar <strong>todos los registros y movimientos</strong> del Libro Único de Tesorería de forma permanente.
-              </p>
-              <p className="text-xs text-rose-700 bg-rose-50 p-3 rounded-xl border border-rose-200 font-semibold">
-                Esta acción no se puede deshacer. ¿Estás completamente seguro?
-              </p>
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowBorrarTodoModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleBorrarTodoContenido}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-sm font-bold shadow-md"
-                >
-                  Sí, Borrar Todo
-                </button>
-              </div>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-base text-rose-700">Borrar Todo</h3>
+            <p className="text-xs text-slate-600">Se eliminarán todos los registros de la base de datos.</p>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleBorrarTodoContenido} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold">Sí, borrar</button>
             </div>
           </div>
         </div>
       )}
 
       {solicitudEdicionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Lock className="w-5 h-5 text-amber-400" />
-                <h3 className="font-bold text-base">Solicitar Permiso de Edición</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setSolicitudEdicionModal(null)}
-                className="text-indigo-200 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleEnviarSolicitudEdicion} className="p-6 space-y-4">
-              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
-                <p className="font-bold text-slate-900">
-                  Registro: {solicitudEdicionModal.id} — {solicitudEdicionModal.actividad}
-                </p>
-                <p className="text-slate-600">
-                  Monto reportado actual: <strong>{formatCOP(solicitudEdicionModal.montoReportado)}</strong>
-                </p>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Motivo de la corrección
-                </label>
-                <textarea
-                  rows={3}
-                  required
-                  placeholder="Ej. Me equivoqué en la cantidad..."
-                  value={motivoSolicitudEdicion}
-                  onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSolicitudEdicionModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-900 hover:bg-indigo-800 text-white text-sm font-bold shadow-md"
-                >
-                  Enviar Solicitud
-                </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-base">Solicitar Permiso de Edición</h3>
+            <form onSubmit={handleEnviarSolicitudEdicion}>
+              <textarea
+                rows={3}
+                required
+                placeholder="Motivo..."
+                value={motivoSolicitudEdicion}
+                onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
+                className="w-full px-3 py-2 border text-xs rounded-xl mb-4"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-900 text-white rounded-xl text-xs font-bold">Enviar</button>
               </div>
             </form>
           </div>
@@ -2866,75 +2085,25 @@ export default function App() {
       )}
 
       {abonoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full shadow-2xl border border-slate-200 overflow-hidden">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <BadgeDollarSign className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-base">Registrar Abono de Deudor</h3>
-              </div>
-              <button
-                type="button"
-                onClick={() => setAbonoModal(null)}
-                className="text-indigo-200 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleConfirmarAbono} className="p-6 space-y-4">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-2 text-xs">
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Deudor:</span>
-                  <span className="font-bold text-slate-900 text-sm">
-                    {abonoModal.comprador.nombre}
-                  </span>
-                </div>
-                <div className="flex justify-between">
-                  <span className="text-slate-500">Actividad:</span>
-                  <span className="font-semibold text-slate-700">
-                    {abonoModal.actividad} ({abonoModal.comprador.cantidad} unid.)
-                  </span>
-                </div>
-                <div className="flex justify-between pt-1.5 border-t border-slate-200 text-sm">
-                  <span className="font-extrabold text-rose-800">Saldo Pendiente:</span>
-                  <span className="font-extrabold text-rose-700">
-                    {formatCOP(abonoModal.saldoPendiente)}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Valor del Abono a Registrar ($)
-                </label>
-                <input
-                  type="number"
-                  min="100"
-                  max={abonoModal.saldoPendiente}
-                  step="100"
-                  required
-                  value={valorAbonoInput}
-                  onChange={(e) => setValorAbonoInput(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border-2 border-indigo-200 focus:border-indigo-600 text-lg font-extrabold text-slate-900 outline-none"
-                  autoFocus
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setAbonoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md"
-                >
-                  Guardar Abono
-                </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4">
+            <h3 className="font-bold text-base">Registrar Abono</h3>
+            <p className="text-xs text-slate-600">Debe: {formatCOP(abonoModal.saldoPendiente)}</p>
+            <form onSubmit={handleConfirmarAbono}>
+              <input
+                type="number"
+                min="100"
+                max={abonoModal.saldoPendiente}
+                step="100"
+                required
+                value={valorAbonoInput}
+                onChange={(e) => setValorAbonoInput(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">Guardar</button>
               </div>
             </form>
           </div>
@@ -2942,84 +2111,31 @@ export default function App() {
       )}
 
       {arqueoItem && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-lg w-full shadow-2xl border border-slate-200 overflow-hidden max-h-[92vh] flex flex-col">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between shrink-0">
-              <div className="flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-base">Arqueo y Recepción de Recaudo</h3>
-              </div>
-              <button
-                onClick={() => setArqueoItem(null)}
-                className="text-indigo-200 hover:text-white"
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <form onSubmit={handleConfirmarArqueo} className="p-6 space-y-4 overflow-y-auto">
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 space-y-1.5">
-                <div className="flex justify-between text-xs text-slate-500">
-                  <span>Registro: {arqueoItem.id}</span>
-                  <span>{arqueoItem.fecha}</span>
-                </div>
-                <p className="font-bold text-slate-900 text-sm">
-                  {arqueoItem.actividad} — {arqueoItem.responsable}
-                </p>
-                <p className="text-xs text-slate-600">{arqueoItem.descripcion}</p>
-                <div className="pt-2 mt-2 border-t border-slate-200 flex justify-between items-center">
-                  <span className="text-xs font-semibold text-slate-600">
-                    Monto Reportado en Mano por Recaudador:
-                  </span>
-                  <span className="text-base font-extrabold text-indigo-950">
-                    {formatCOP(arqueoItem.montoReportado)}
-                  </span>
-                </div>
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Monto Físico Contado por el Tesorero ($)
-                </label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  required
-                  value={montoFisicoContado}
-                  onChange={(e) => setMontoFisicoContado(e.target.value)}
-                  className="w-full px-4 py-3 rounded-xl border-2 border-indigo-200 focus:border-indigo-600 text-lg font-extrabold text-slate-900 outline-none"
-                  autoFocus
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1.5">
-                  Observación / Nota de Tesorería
-                </label>
-                <textarea
-                  rows={2}
-                  placeholder="Ej. Contado en presencia del recaudador, sin novedad."
-                  value={notaArqueo}
-                  onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
-                />
-              </div>
-
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setArqueoItem(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 text-sm font-semibold hover:bg-slate-50"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-bold shadow-md"
-                >
-                  Confirmar Recepción
-                </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4">
+            <h3 className="font-bold text-base">Arqueo y Recepción</h3>
+            <p className="text-xs text-slate-600">Reportado: {formatCOP(arqueoItem.montoReportado)}</p>
+            <form onSubmit={handleConfirmarArqueo}>
+              <input
+                type="number"
+                min="0"
+                step="100"
+                required
+                value={montoFisicoContado}
+                onChange={(e) => setMontoFisicoContado(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-3"
+                autoFocus
+              />
+              <textarea
+                rows={2}
+                placeholder="Observación..."
+                value={notaArqueo}
+                onChange={(e) => setNotaArqueo(e.target.value)}
+                className="w-full px-3 py-2 border text-xs rounded-xl mb-4"
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 text-white rounded-xl text-xs font-bold">Confirmar</button>
               </div>
             </form>
           </div>
