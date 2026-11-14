@@ -40,10 +40,10 @@ import {
   ChevronUp,
   BadgeDollarSign,
   ShoppingBag,
-  KeyRound
+  KeyRound,
+  Calendar
 } from 'lucide-react';
 
-// Formateador de moneda en Pesos Colombianos (COP)
 const formatCOP = (value) => {
   const num = Number(value) || 0;
   return new Intl.NumberFormat('es-CO', {
@@ -53,7 +53,6 @@ const formatCOP = (value) => {
   }).format(num);
 };
 
-// Helper para calcular métricas de inventario/compradores en registros por unidad
 const calcularResumenInventario = (item) => {
   if (item.modoRegistro !== 'UNIDADES') {
     return {
@@ -122,11 +121,9 @@ const calcularResumenInventario = (item) => {
   };
 };
 
-const INITIAL_DATA = [];
-
 const ACTIVIDADES_RECAUDO = [
-  'Venta de Comidas',
   'Tamales / Bollos',
+  'Venta de Comidas',
   'Rifa',
   'Evento Juvenil',
   'Ofrenda Especial',
@@ -145,12 +142,11 @@ const CATEGORIAS_EGRESO = [
 ];
 
 export default function App() {
-  const [movimientos, setMovimientos] = useState(INITIAL_DATA);
+  const [movimientos, setMovimientos] = useState([]);
   const [pinRecaudador, setPinRecaudador] = useState('2026');
   const [pinTesorero, setPinTesorero] = useState('1234');
   const [cargandoNube, setCargandoNube] = useState(true);
 
-  // Cargar datos y PINs desde Supabase al iniciar + Escuchar cambios en TIEMPO REAL
   useEffect(() => {
     supabase
       .from('estado_tesoreria')
@@ -188,13 +184,19 @@ export default function App() {
     };
   }, []);
 
-  const [showCambiarPinRecaudador, setShowCambiarPinRecaudador] = useState(false);
-  const [nuevoPinRecInput, setNuevoPinRecInput] = useState('');
-
-  const [showCambiarPinTesorero, setShowCambiarPinTesorero] = useState(false);
-  const [nuevoPinTesInput, setNuevoPinTesInput] = useState('');
-
-  const [showBorrarTodoModal, setShowBorrarTodoModal] = useState(false);
+  const guardarEnNube = (nuevosMovs, nuevoPinR, nuevoPinT) => {
+    if (cargandoNube) return;
+    try {
+      supabase
+        .from('estado_tesoreria')
+        .upsert({ id: 1, datos: nuevosMovs, pin_rec: nuevoPinR, pin_tes: nuevoPinT })
+        .then(({ error }) => {
+          if (error) console.error('Error al guardar en Supabase:', error);
+        });
+    } catch (err) {
+      console.error(err);
+    }
+  };
 
   const [activeRole, setActiveRole] = useState('RECAUDADOR');
   const [isRecaudadorAuth, setIsRecaudadorAuth] = useState(false);
@@ -206,7 +208,18 @@ export default function App() {
   const [pinError, setPinError] = useState('');
 
   const [toast, setToast] = useState(null);
+  const showToast = (message, type = 'success') => {
+    setToast({ message, type });
+    setTimeout(() => setToast(null), 4500);
+  };
 
+  const [showCambiarPinRecaudador, setShowCambiarPinRecaudador] = useState(false);
+  const [nuevoPinRecInput, setNuevoPinRecInput] = useState('');
+  const [showCambiarPinTesorero, setShowCambiarPinTesorero] = useState(false);
+  const [nuevoPinTesInput, setNuevoPinTesInput] = useState('');
+  const [showBorrarTodoModal, setShowBorrarTodoModal] = useState(false);
+
+  // Estados Formulario Recaudador
   const [modoRecaudo, setModoRecaudo] = useState('UNIDADES');
   const [recFecha, setRecFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [recNombre, setRecNombre] = useState('');
@@ -225,17 +238,17 @@ export default function App() {
 
   const [abonoModal, setAbonoModal] = useState(null);
   const [valorAbonoInput, setValorAbonoInput] = useState('');
-
   const [editingRecaudoId, setEditingRecaudoId] = useState(null);
   const [solicitudEdicionModal, setSolicitudEdicionModal] = useState(null);
   const [motivoSolicitudEdicion, setMotivoSolicitudEdicion] = useState('');
-
   const [expandedRows, setExpandedRows] = useState({});
 
+  // Estados Tesorería
   const [tesoreroTab, setTesoreroTab] = useState('BANDEJA');
   const [arqueoItem, setArqueoItem] = useState(null);
   const [montoFisicoContado, setMontoFisicoContado] = useState('');
   const [notaArqueo, setNotaArqueo] = useState('');
+  const [descuadreItemModal, setDescuadreItemModal] = useState(null);
 
   const [egrFecha, setEgrFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [egrCategoria, setEgrCategoria] = useState('Insumos Cocina');
@@ -247,298 +260,37 @@ export default function App() {
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
-  // Función de guardado inmediato en Supabase
-  const guardarEnNube = (nuevosMovs, nuevoPinR, nuevoPinT) => {
-    if (cargandoNube) return;
-    try {
-      supabase
-        .from('estado_tesoreria')
-        .upsert({ id: 1, datos: nuevosMovs, pin_rec: nuevoPinR, pin_tes: nuevoPinT })
-        .then(({ error }) => {
-          if (error) console.error('Error al guardar en Supabase:', error);
-        });
-    } catch (err) {
-      console.error(err);
-    }
-  };
-
   const toggleExpandRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const showToast = (message, type = 'success') => {
-    setToast({ message, type });
-    setTimeout(() => setToast(null), 4500);
-  };
-
   const handleGuardarNuevoPinRec = (e) => {
     e.preventDefault();
-    if (!nuevoPinRecInput.trim()) {
-      showToast('Ingresa una contraseña válida.', 'error');
-      return;
-    }
-    const nuevoPin = nuevoPinRecInput.trim();
-    setPinRecaudador(nuevoPin);
+    if (!nuevoPinRecInput.trim()) return;
+    const nuevo = nuevoPinRecInput.trim();
+    setPinRecaudador(nuevo);
     setShowCambiarPinRecaudador(false);
     setNuevoPinRecInput('');
-    guardarEnNube(movimientos, nuevoPin, pinTesorero);
-    showToast('Contraseña de Recaudador actualizada y sincronizada.', 'success');
+    guardarEnNube(movimientos, nuevo, pinTesorero);
+    showToast('PIN de Recaudador actualizado.');
   };
 
   const handleGuardarNuevoPinTes = (e) => {
     e.preventDefault();
-    if (!nuevoPinTesInput.trim()) {
-      showToast('Ingresa una contraseña válida.', 'error');
-      return;
-    }
-    const nuevoPin = nuevoPinTesInput.trim();
-    setPinTesorero(nuevoPin);
+    if (!nuevoPinTesInput.trim()) return;
+    const nuevo = nuevoPinTesInput.trim();
+    setPinTesorero(nuevo);
     setShowCambiarPinTesorero(false);
     setNuevoPinTesInput('');
-    guardarEnNube(movimientos, pinRecaudador, nuevoPin);
-    showToast('Contraseña de Tesorería actualizada y sincronizada.', 'success');
+    guardarEnNube(movimientos, pinRecaudador, nuevo);
+    showToast('PIN de Tesorería actualizado.');
   };
 
-  const handleBorrarTodoContenido = () => {
+  const handleBorrarTodo = () => {
     setMovimientos([]);
     setShowBorrarTodoModal(false);
     guardarEnNube([], pinRecaudador, pinTesorero);
-    showToast('Se han borrado todos los registros de la tesorería.', 'warning');
-  };
-
-  const handleRegistrarRecaudo = (e) => {
-    e.preventDefault();
-
-    if (!recNombre.trim()) {
-      showToast('Por favor ingresa el nombre del recaudador responsable.', 'error');
-      return;
-    }
-
-    if (modoRecaudo === 'UNIDADES') {
-      const producidas = Number(recCantidadProducida) || 0;
-      const precio = Number(recPrecioUnitario) || 0;
-
-      if (producidas <= 0 || precio <= 0) {
-        showToast('Ingresa una cantidad producida y un precio unitario válidos.', 'error');
-        return;
-      }
-
-      const valorRecaudadoEnMano = resumenFormUnidades.plataRecaudada;
-      const descFinal =
-        recDescripcion.trim() ||
-        `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas, ${resumenFormUnidades.unidadesSinVender} sin vender)`;
-
-      if (editingRecaudoId) {
-        const actualizados = movimientos.map((m) =>
-          m.id === editingRecaudoId
-            ? {
-                ...m,
-                fecha: recFecha,
-                modoRegistro: 'UNIDADES',
-                actividad: recActividad,
-                descripcion: descFinal,
-                responsable: recNombre.trim(),
-                metodoPago: recMetodo,
-                cantidadProducida: producidas,
-                precioUnitario: precio,
-                compradores: Array.isArray(recCompradores) ? [...recCompradores] : [],
-                montoReportado: valorRecaudadoEnMano,
-                edicionAutorizada: false,
-                solicitudEdicion: false,
-                motivoEdicion: '',
-              }
-            : m
-        );
-        setMovimientos(actualizados);
-        guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-        setEditingRecaudoId(null);
-        setRecDescripcion('');
-        setRecCompradores([]);
-        showToast('Recaudo modificado y actualizado. El permiso de edición se ha cerrado.', 'success');
-        return;
-      }
-
-      const nuevoId = `REC-${Math.floor(100 + Math.random() * 900)}`;
-      const nuevoRegistro = {
-        id: nuevoId,
-        fecha: recFecha,
-        tipo: 'INGRESO',
-        modoRegistro: 'UNIDADES',
-        actividad: recActividad,
-        descripcion: descFinal,
-        responsable: recNombre.trim(),
-        metodoPago: recMetodo,
-        cantidadProducida: producidas,
-        precioUnitario: precio,
-        compradores: Array.isArray(recCompradores) ? [...recCompradores] : [],
-        montoReportado: valorRecaudadoEnMano,
-        montoRecibido: 0,
-        montoSalida: 0,
-        estado: 'PENDIENTE',
-        notaTesorero: '',
-      };
-
-      const actualizados = [nuevoRegistro, ...movimientos];
-      setMovimientos(actualizados);
-      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-      setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
-      setRecDescripcion('');
-      setRecCompradores([]);
-      showToast(
-        `Actividad registrada: ${formatCOP(valorRecaudadoEnMano)} recaudados en mano y ${formatCOP(
-          resumenFormUnidades.totalPlataFaltante
-        )} pendientes en calle.`,
-        'success'
-      );
-      return;
-    }
-
-    const valor = Number(recMonto.toString().replace(/\D/g, ''));
-    if (!recDescripcion.trim() || valor <= 0) {
-      showToast('Por favor completa la descripción y un monto válido.', 'error');
-      return;
-    }
-
-    if (editingRecaudoId) {
-      const actualizados = movimientos.map((m) =>
-        m.id === editingRecaudoId
-          ? {
-              ...m,
-              fecha: recFecha,
-              modoRegistro: 'GENERAL',
-              actividad: recActividad,
-              descripcion: recDescripcion.trim(),
-              responsable: recNombre.trim(),
-              metodoPago: recMetodo,
-              cantidadProducida: undefined,
-              precioUnitario: undefined,
-              compradores: undefined,
-              montoReportado: valor,
-              edicionAutorizada: false,
-              solicitudEdicion: false,
-              motivoEdicion: '',
-            }
-          : m
-      );
-      setMovimientos(actualizados);
-      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-      setEditingRecaudoId(null);
-      setRecDescripcion('');
-      setRecMonto('');
-      showToast('Recaudo general modificado. El permiso de edición se ha cerrado.', 'success');
-      return;
-    }
-
-    const nuevoRegistro = {
-      id: `REC-${Math.floor(100 + Math.random() * 900)}`,
-      fecha: recFecha,
-      tipo: 'INGRESO',
-      modoRegistro: 'GENERAL',
-      actividad: recActividad,
-      descripcion: recDescripcion.trim(),
-      responsable: recNombre.trim(),
-      metodoPago: recMetodo,
-      montoReportado: valor,
-      montoRecibido: 0,
-      montoSalida: 0,
-      estado: 'PENDIENTE',
-      notaTesorero: '',
-    };
-
-    const actualizados = [nuevoRegistro, ...movimientos];
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    setRecDescripcion('');
-    setRecMonto('');
-    showToast('Recaudo registrado y enviado a Tesorería (Pendiente por recoger).', 'success');
-  };
-
-  const handleIniciarEdicionRecaudo = (item) => {
-    if (item.estado === 'VERIFICADO') {
-      showToast('Este recaudo ya fue recibido y verificado por Tesorería; no se puede editar.', 'warning');
-      return;
-    }
-    if (!item.edicionAutorizada) {
-      showToast('Necesitas autorización de Tesorería para modificar este registro.', 'warning');
-      return;
-    }
-    setEditingRecaudoId(item.id);
-    setRecFecha(item.fecha || new Date().toISOString().split('T')[0]);
-    setRecActividad(item.actividad || 'Tamales / Bollos');
-    setRecNombre(item.responsable || '');
-    setRecDescripcion(item.descripcion || '');
-    setRecMetodo(item.metodoPago || 'Efectivo');
-
-    if (item.modoRegistro === 'UNIDADES') {
-      setModoRecaudo('UNIDADES');
-      setRecCantidadProducida(String(item.cantidadProducida ?? '30'));
-      setRecPrecioUnitario(String(item.precioUnitario ?? '12000'));
-      setRecCompradores(Array.isArray(item.compradores) ? [...item.compradores] : []);
-      setRecMonto('');
-    } else {
-      setModoRecaudo('GENERAL');
-      setRecMonto(String(item.montoReportado || ''));
-      setRecCompradores([]);
-    }
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast(`Editando registro ${item.id}. Realiza los cambios y presiona "Guardar Cambios".`, 'success');
-  };
-
-  const handleCancelarEdicionRecaudo = () => {
-    setEditingRecaudoId(null);
-    setRecDescripcion('');
-    setRecMonto('');
-    setRecCompradores([]);
-  };
-
-  const handleEnviarSolicitudEdicion = (e) => {
-    e.preventDefault();
-    if (!solicitudEdicionModal) return;
-
-    const motivo = motivoSolicitudEdicion.trim();
-    if (!motivo) {
-      showToast('Escribe brevemente qué dato necesitas corregir para que Tesorería lo autorice.', 'error');
-      return;
-    }
-
-    const actualizados = movimientos.map((m) =>
-      m.id === solicitudEdicionModal.id
-        ? {
-            ...m,
-            solicitudEdicion: true,
-            motivoEdicion: motivo,
-          }
-        : m
-    );
-
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast(`Solicitud enviada a Tesorería para el registro ${solicitudEdicionModal.id}.`, 'success');
-    setSolicitudEdicionModal(null);
-    setMotivoSolicitudEdicion('');
-  };
-
-  const handleAutorizarEdicionTesorero = (item, aprobar) => {
-    const actualizados = movimientos.map((m) =>
-      m.id === item.id
-        ? {
-            ...m,
-            edicionAutorizada: aprobar,
-            solicitudEdicion: false,
-            notaTesorero: aprobar
-              ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada por Tesorería: ${m.motivoEdicion || 'Corrección solicitada'}]`
-              : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Solicitud de edición rechazada por Tesorería]`,
-          }
-        : m
-    );
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast(
-      aprobar
-        ? `Edición autorizada para ${item.id}. La recaudadora ya puede corregirlo.`
-        : `Solicitud de edición rechazada para ${item.id}.`,
-      aprobar ? 'success' : 'warning'
-    );
+    showToast('Se han borrado todos los registros.', 'warning');
   };
 
   const resumenFormUnidades = useMemo(() => {
@@ -551,20 +303,17 @@ export default function App() {
     let plataRecaudada = 0;
     let plataFiada = 0;
 
-    const listaCompradores = Array.isArray(recCompradores) ? recCompradores : [];
-
-    listaCompradores.forEach((c) => {
-      const q = Number(c?.cantidad) || 0;
+    recCompradores.forEach((c) => {
+      const q = Number(c.cantidad) || 0;
       const totalComp = q * precio;
       const abonado =
-        c?.estadoPago === 'PAGADO'
+        c.estadoPago === 'PAGADO'
           ? totalComp
-          : Math.min(totalComp, Math.max(0, Number(c?.montoAbonado) || 0));
+          : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
       const saldo = Math.max(0, totalComp - abonado);
 
       plataRecaudada += abonado;
       plataFiada += saldo;
-
       if (saldo === 0) unidadesPagadas += q;
       else unidadesFiadas += q;
     });
@@ -599,27 +348,23 @@ export default function App() {
     const totalComp = cant * precio;
 
     if (!nombre) {
-      showToast('Escribe el nombre de la persona que compró o pidió fiado.', 'error');
+      showToast('Escribe el nombre de la persona.', 'error');
       return;
     }
     if (cant <= 0) {
-      showToast('La cantidad de unidades debe ser mayor a 0.', 'error');
+      showToast('Cantidad inválida.', 'error');
       return;
     }
     if (producidas > 0 && resumenFormUnidades.unidadesAsignadas + cant > producidas) {
-      showToast(
-        `No puedes asignar ${cant} unidades. Solo quedan ${resumenFormUnidades.unidadesSinVender} disponibles de las ${producidas} producidas.`,
-        'error'
-      );
+      showToast(`Supera las unidades producidas (${resumenFormUnidades.unidadesSinVender} restantes).`, 'error');
       return;
     }
 
     let montoAbonadoInicial = totalComp;
     let estadoFinal = nuevoCompEstado;
-
     if (nuevoCompEstado === 'FIADO') {
       const abonoNum = Math.max(0, Number(nuevoCompAbono) || 0);
-      if (abonoNum >= totalComp && totalComp > 0) {
+      if (abonoNum >= totalComp) {
         montoAbonadoInicial = totalComp;
         estadoFinal = 'PAGADO';
       } else {
@@ -661,6 +406,200 @@ export default function App() {
     setRecCompradores((prev) => prev.filter((c) => c.id !== compId));
   };
 
+  const handleRegistrarRecaudo = (e) => {
+    e.preventDefault();
+    if (!recNombre.trim()) {
+      showToast('Ingresa el nombre del responsable.', 'error');
+      return;
+    }
+
+    if (modoRecaudo === 'UNIDADES') {
+      const producidas = Number(recCantidadProducida) || 0;
+      const precio = Number(recPrecioUnitario) || 0;
+      const valorRecaudadoEnMano = resumenFormUnidades.plataRecaudada;
+      const descFinal =
+        recDescripcion.trim() ||
+        `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
+
+      if (editingRecaudoId) {
+        const actualizados = movimientos.map((m) =>
+          m.id === editingRecaudoId
+            ? {
+                ...m,
+                fecha: recFecha,
+                modoRegistro: 'UNIDADES',
+                actividad: recActividad,
+                descripcion: descFinal,
+                responsable: recNombre.trim(),
+                metodoPago: recMetodo,
+                cantidadProducida: producidas,
+                precioUnitario: precio,
+                compradores: [...recCompradores],
+                montoReportado: valorRecaudadoEnMano,
+                edicionAutorizada: false,
+                solicitudEdicion: false,
+                motivoEdicion: '',
+              }
+            : m
+        );
+        setMovimientos(actualizados);
+        guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+        setEditingRecaudoId(null);
+        setRecDescripcion('');
+        setRecCompradores([]);
+        showToast('Recaudo por unidades modificado con éxito.');
+        return;
+      }
+
+      const nuevoId = `REC-${Math.floor(100 + Math.random() * 900)}`;
+      const nuevoReg = {
+        id: nuevoId,
+        fecha: recFecha,
+        tipo: 'INGRESO',
+        modoRegistro: 'UNIDADES',
+        actividad: recActividad,
+        descripcion: descFinal,
+        responsable: recNombre.trim(),
+        metodoPago: recMetodo,
+        cantidadProducida: producidas,
+        precioUnitario: precio,
+        compradores: [...recCompradores],
+        montoReportado: valorRecaudadoEnMano,
+        montoRecibido: 0,
+        montoSalida: 0,
+        estado: 'PENDIENTE',
+        notaTesorero: '',
+      };
+
+      const actualizados = [nuevoReg, ...movimientos];
+      setMovimientos(actualizados);
+      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+      setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
+      setRecDescripcion('');
+      setRecCompradores([]);
+      showToast('Recaudo registrado y enviado a Tesorería.');
+      return;
+    }
+
+    const valor = Number(recMonto.toString().replace(/\D/g, ''));
+    if (!recDescripcion.trim() || valor <= 0) {
+      showToast('Completa la descripción y un monto válido.', 'error');
+      return;
+    }
+
+    if (editingRecaudoId) {
+      const actualizados = movimientos.map((m) =>
+        m.id === editingRecaudoId
+          ? {
+              ...m,
+              fecha: recFecha,
+              modoRegistro: 'GENERAL',
+              actividad: recActividad,
+              descripcion: recDescripcion.trim(),
+              responsable: recNombre.trim(),
+              metodoPago: recMetodo,
+              montoReportado: valor,
+              edicionAutorizada: false,
+              solicitudEdicion: false,
+              motivoEdicion: '',
+            }
+          : m
+      );
+      setMovimientos(actualizados);
+      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+      setEditingRecaudoId(null);
+      setRecDescripcion('');
+      setRecMonto('');
+      showToast('Recaudo general modificado.');
+      return;
+    }
+
+    const nuevoReg = {
+      id: `REC-${Math.floor(100 + Math.random() * 900)}`,
+      fecha: recFecha,
+      tipo: 'INGRESO',
+      modoRegistro: 'GENERAL',
+      actividad: recActividad,
+      descripcion: recDescripcion.trim(),
+      responsable: recNombre.trim(),
+      metodoPago: recMetodo,
+      montoReportado: valor,
+      montoRecibido: 0,
+      montoSalida: 0,
+      estado: 'PENDIENTE',
+      notaTesorero: '',
+    };
+
+    const actualizados = [nuevoReg, ...movimientos];
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    setRecDescripcion('');
+    setRecMonto('');
+    showToast('Recaudo general enviado a Tesorería.');
+  };
+
+  const handleIniciarEdicion = (item) => {
+    if (item.estado === 'VERIFICADO') {
+      showToast('Ya fue verificado por tesorería, no se puede editar.', 'warning');
+      return;
+    }
+    if (!item.edicionAutorizada) {
+      showToast('Necesitas solicitar autorización de edición a Tesorería.', 'warning');
+      return;
+    }
+    setEditingRecaudoId(item.id);
+    setRecFecha(item.fecha);
+    setRecActividad(item.actividad);
+    setRecNombre(item.responsable);
+    setRecDescripcion(item.descripcion);
+    setRecMetodo(item.metodoPago || 'Efectivo');
+    if (item.modoRegistro === 'UNIDADES') {
+      setModoRecaudo('UNIDADES');
+      setRecCantidadProducida(String(item.cantidadProducida));
+      setRecPrecioUnitario(String(item.precioUnitario));
+      setRecCompradores(Array.isArray(item.compradores) ? [...item.compradores] : []);
+    } else {
+      setModoRecaudo('GENERAL');
+      setRecMonto(String(item.montoReportado));
+    }
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+    showToast('Modo edición activado.');
+  };
+
+  const handleEnviarSolicitudEdicion = (e) => {
+    e.preventDefault();
+    if (!solicitudEdicionModal) return;
+    const motivo = motivoSolicitudEdicion.trim();
+    if (!motivo) return;
+
+    const actualizados = movimientos.map((m) =>
+      m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
+    );
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    showToast('Solicitud de edición enviada a Tesorería.');
+    setSolicitudEdicionModal(null);
+    setMotivoSolicitudEdicion('');
+  };
+
+  const handleAutorizarEdicionTesorero = (item, aprobar) => {
+    const actualizados = movimientos.map((m) =>
+      m.id === item.id
+        ? {
+            ...m,
+            edicionAutorizada: aprobar,
+            solicitudEdicion: false,
+            notaTesorero: aprobar
+              ? `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición autorizada]`
+              : `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Edición rechazada]`,
+          }
+        : m
+    );
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    showToast(aprobar ? 'Edición autorizada.' : 'Solicitud rechazada.');
+  };
+
   const openAbonoModal = (movimiento, comprador) => {
     const precio = Number(movimiento.precioUnitario) || 0;
     const totalComp = (Number(comprador.cantidad) || 0) * precio;
@@ -672,11 +611,7 @@ export default function App() {
 
     setAbonoModal({
       movimientoId: movimiento.id,
-      actividad: movimiento.actividad,
       comprador,
-      precioUnitario: precio,
-      totalComp,
-      abonadoActual,
       saldoPendiente,
     });
     setValorAbonoInput(String(saldoPendiente));
@@ -685,31 +620,21 @@ export default function App() {
   const handleConfirmarAbono = (e) => {
     e.preventDefault();
     if (!abonoModal) return;
-
     const abonoNuevo = Number(valorAbonoInput.toString().replace(/\D/g, '')) || 0;
-    if (abonoNuevo <= 0) {
-      showToast('Ingresa un valor de abono mayor a $0.', 'error');
-      return;
-    }
-    if (abonoNuevo > abonoModal.saldoPendiente) {
-      showToast(`El abono supera el saldo pendiente de ${formatCOP(abonoModal.saldoPendiente)}.`, 'error');
-      return;
-    }
+    if (abonoNuevo <= 0) return;
 
     const actualizados = movimientos.map((m) => {
       if (m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
-
       const precio = Number(m.precioUnitario) || 0;
-      const compradoresActualizados = (m.compradores || []).map((c) => {
+      const comps = (m.compradores || []).map((c) => {
         if (c.id !== abonoModal.comprador.id) return c;
-        const totalComp = (Number(c.cantidad) || 0) * precio;
+        const totalC = (Number(c.cantidad) || 0) * precio;
         const abonadoPrevio =
           c.estadoPago === 'PAGADO'
-            ? totalComp
-            : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
-        const nuevoTotalAbonado = Math.min(totalComp, abonadoPrevio + abonoNuevo);
-        const saldado = nuevoTotalAbonado >= totalComp;
-
+            ? totalC
+            : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
+        const nuevoTotalAbonado = Math.min(totalC, abonadoPrevio + abonoNuevo);
+        const saldado = nuevoTotalAbonado >= totalC;
         return {
           ...c,
           montoAbonado: nuevoTotalAbonado,
@@ -717,7 +642,7 @@ export default function App() {
         };
       });
 
-      const nuevoMontoReportado = compradoresActualizados.reduce((acc, c) => {
+      const nuevoMontoReportado = comps.reduce((acc, c) => {
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonoC =
           c.estadoPago === 'PAGADO'
@@ -726,37 +651,49 @@ export default function App() {
         return acc + abonoC;
       }, 0);
 
-      return {
-        ...m,
-        compradores: compradoresActualizados,
-        montoReportado: nuevoMontoReportado,
-      };
+      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
     });
 
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado correctamente.`, 'success');
+    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado con éxito.`);
     setAbonoModal(null);
-    setValorAbonoInput('');
+  };
+
+  const handleSaldarTodoComprador = (movimientoId, compradorId) => {
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+      const precio = Number(m.precioUnitario) || 0;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
+        const totalC = (Number(c.cantidad) || 0) * precio;
+        return { ...c, estadoPago: 'PAGADO', montoAbonado: totalC };
+      });
+      const nuevoMontoReportado = comps.reduce((acc, c) => {
+        const totalC = (Number(c.cantidad) || 0) * precio;
+        return acc + totalC;
+      }, 0);
+      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
+    });
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    showToast('Deuda saldada por completo.');
   };
 
   const handleTogglePagoCompradorExistente = (movimientoId, compradorId) => {
     const actualizados = movimientos.map((m) => {
       if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
-
       const precio = Number(m.precioUnitario) || 0;
-      const compradoresActualizados = (m.compradores || []).map((c) => {
+      const comps = (m.compradores || []).map((c) => {
         if (c.id !== compradorId) return c;
-        const totalComp = (Number(c.cantidad) || 0) * precio;
         const nuevoEstado = c.estadoPago === 'PAGADO' ? 'FIADO' : 'PAGADO';
         return {
           ...c,
           estadoPago: nuevoEstado,
-          montoAbonado: nuevoEstado === 'PAGADO' ? totalComp : 0,
+          montoAbonado: nuevoEstado === 'PAGADO' ? (Number(c.cantidad) || 0) * precio : 0,
         };
       });
-
-      const nuevoMontoReportado = compradoresActualizados.reduce((acc, c) => {
+      const nuevoMontoReportado = comps.reduce((acc, c) => {
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonoC =
           c.estadoPago === 'PAGADO'
@@ -764,19 +701,14 @@ export default function App() {
             : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
         return acc + abonoC;
       }, 0);
-
-      return {
-        ...m,
-        compradores: compradoresActualizados,
-        montoReportado: nuevoMontoReportado,
-      };
+      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
     });
-
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast('Estado de pago del comprador actualizado.', 'success');
+    showToast('Estado de pago actualizado.');
   };
 
+  // KPIs
   const kpis = useMemo(() => {
     let totalEntradasVerificadas = 0;
     let totalSalidas = 0;
@@ -785,11 +717,8 @@ export default function App() {
     let cantidadPendientes = 0;
     let cantidadDescuadres = 0;
     let cantidadSolicitudesEdicion = 0;
-
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
-    let totalUnidadesFaltantesCalle = 0;
-    let cantidadDeudoresActivos = 0;
 
     movimientos.forEach((m) => {
       if (m.tipo === 'INGRESO') {
@@ -800,21 +729,16 @@ export default function App() {
           cantidadPendientes += 1;
         } else if (m.estado === 'DESCUADRE') {
           totalEntradasVerificadas += Number(m.montoRecibido) || 0;
-          const diff = (Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0);
+          const diff = Math.abs((Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0));
           descuadreAcumulado += diff;
           cantidadDescuadres += 1;
         }
-        if (m.solicitudEdicion) {
-          cantidadSolicitudesEdicion += 1;
-        }
+        if (m.solicitudEdicion) cantidadSolicitudesEdicion += 1;
 
         if (m.modoRegistro === 'UNIDADES') {
           const inv = calcularResumenInventario(m);
           totalPlataFiadaCalle += inv.plataFiada;
           totalPlataSinVenderCalle += inv.plataSinVender;
-          totalUnidadesFaltantesCalle += inv.totalUnidadesFaltantes;
-          const deudores = (m.compradores || []).filter((c) => c.estadoPago === 'FIADO');
-          cantidadDeudoresActivos += deudores.length;
         }
       } else if (m.tipo === 'EGRESO') {
         totalSalidas += Number(m.montoSalida) || 0;
@@ -833,10 +757,6 @@ export default function App() {
       cantidadPendientes,
       cantidadDescuadres,
       cantidadSolicitudesEdicion,
-      totalPlataFiadaCalle,
-      totalPlataSinVenderCalle,
-      totalUnidadesFaltantesCalle,
-      cantidadDeudoresActivos,
       totalCarteraYSinVender,
     };
   }, [movimientos]);
@@ -847,7 +767,7 @@ export default function App() {
       setIsRecaudadorAuth(true);
       setRecPinError('');
       setRecPinInput('');
-      showToast('Acceso concedido al módulo de Recaudadores', 'success');
+      showToast('Acceso de recaudador concedido.');
     } else {
       setRecPinError('Contraseña incorrecta.');
     }
@@ -859,7 +779,7 @@ export default function App() {
       setIsTesoreroAuth(true);
       setPinError('');
       setPinInput('');
-      showToast('Acceso concedido al Libro Único de Tesorería', 'success');
+      showToast('Acceso de tesorería concedido.');
     } else {
       setPinError('Contraseña incorrecta.');
     }
@@ -876,7 +796,6 @@ export default function App() {
   const handleConfirmarArqueo = (e) => {
     e.preventDefault();
     if (!arqueoItem) return;
-
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
     const reportado = Number(arqueoItem.montoReportado);
     const esExacto = contado === reportado;
@@ -890,8 +809,8 @@ export default function App() {
           notaTesorero:
             notaArqueo.trim() ||
             (esExacto
-              ? 'Recibido y cuadrado conforme.'
-              : `Diferencia detectada de ${formatCOP(reportado - contado)}.`),
+              ? 'Dinero contado exacto en sobre sellado.'
+              : `Se reportaron ${formatCOP(reportado)}, pero al contar faltaron ${formatCOP(reportado - contado)}.`),
         };
       }
       return m;
@@ -900,36 +819,31 @@ export default function App() {
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
     setArqueoItem(null);
-
-    if (esExacto) {
-      showToast('Dinero recibido, verificado y registrado en Caja con éxito.', 'success');
-    } else {
-      showToast('Arqueo guardado con DESCUADRE. Queda en revisión.', 'warning');
-    }
+    showToast(esExacto ? 'Recaudo verificado y recibido en caja.' : 'Arqueo guardado con descuadre.');
   };
 
-  const handleResolverDescuadre = (item) => {
+  const handleAprobarAjusteDescuadre = (item) => {
     const actualizados = movimientos.map((m) => {
       if (m.id === item.id) {
         return {
           ...m,
           montoReportado: m.montoRecibido,
           estado: 'VERIFICADO',
-          notaTesorero: `${m.notaTesorero} | [Descuadre aclarado y cerrado por Tesorería]`,
+          notaTesorero: `${m.notaTesorero} [Ajuste aprobado por Tesorería]`,
         };
       }
       return m;
     });
     setMovimientos(actualizados);
     guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast('Descuadre aclarado y marcado como Verificado.', 'success');
+    showToast('Ajuste de descuadre aprobado y cerrado.');
   };
 
   const handleRegistrarEgreso = (e) => {
     e.preventDefault();
     const valor = Number(egrMonto.toString().replace(/\D/g, ''));
     if (!egrConcepto.trim() || !egrResponsable.trim() || valor <= 0) {
-      showToast('Completa todos los campos obligatorios del gasto.', 'error');
+      showToast('Completa todos los campos del egreso.', 'error');
       return;
     }
 
@@ -954,42 +868,18 @@ export default function App() {
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
-    showToast(`Salida de caja por ${formatCOP(valor)} registrada correctamente.`, 'success');
+    showToast(`Salida registrada por ${formatCOP(valor)}.`);
     setTesoreroTab('LIBRO');
   };
 
   const handleExportCSV = () => {
     const headers = [
-      'ID', 'Fecha', 'Tipo', 'Modo', 'Actividad', 'Descripción', 'Responsable',
-      'Método', 'Producidas', 'Precio Unit.', 'Pagadas', 'Fiadas', 'Sin Vender',
-      'Faltante Calle', 'Compradores', 'Reportado Mano', 'Recibido Caja', 'Salida', 'Estado', 'Nota'
+      'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida', 'Estado', 'Nota'
     ];
-
-    const rows = movimientos.map((m) => {
-      const inv = calcularResumenInventario(m);
-      const precio = Number(m.precioUnitario) || 0;
-      const detallePersonas =
-        m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores)
-          ? m.compradores
-              .map((c) => {
-                const totalC = (Number(c.cantidad) || 0) * precio;
-                const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
-                const saldoC = Math.max(0, totalC - abonoC);
-                return saldoC > 0 ? `${c.nombre} (${c.cantidad} unid - Debe ${formatCOP(saldoC)})` : `${c.nombre} (PAGADO)`;
-              })
-              .join(' | ')
-          : '';
-
-      return [
-        m.id, m.fecha, m.tipo, m.modoRegistro || 'GENERAL', `"${m.actividad}"`, `"${m.descripcion}"`,
-        `"${m.responsable}"`, m.metodoPago, inv.esUnidades ? inv.producidas : '',
-        inv.esUnidades ? inv.precioUnitario : '', inv.esUnidades ? inv.unidadesPagadas : '',
-        inv.esUnidades ? inv.unidadesFiadas : '', inv.esUnidades ? inv.unidadesSinVender : '',
-        inv.esUnidades ? inv.totalPlataFaltante : 0, `"${detallePersonas}"`,
-        m.montoReportado, m.montoRecibido, m.montoSalida, m.estado, `"${m.notaTesorero || ''}"`
-      ];
-    });
-
+    const rows = movimientos.map((m) => [
+      m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
+      m.montoReportado, m.montoRecibido, m.montoSalida, m.estado, `"${m.notaTesorero || ''}"`
+    ]);
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
     const url = URL.createObjectURL(blob);
@@ -999,7 +889,7 @@ export default function App() {
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
-    showToast('Libro exportado a CSV exitosamente.', 'success');
+    showToast('Libro exportado a Excel con éxito.');
   };
 
   const movimientosFiltrados = useMemo(() => {
@@ -1027,28 +917,28 @@ export default function App() {
     switch (m.estado) {
       case 'VERIFICADO':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
-            Verificado
+            Recibido / Verificado
           </span>
         );
       case 'PENDIENTE':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
             <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Pendiente
+            Pendiente por recoger
           </span>
         );
       case 'DESCUADRE':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
-            Descuadre
+            Descuadre en revisión
           </span>
         );
       case 'EGRESO_REGISTRADO':
         return (
-          <span className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
+          <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
             <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
             Salida de Caja
           </span>
@@ -1059,7 +949,7 @@ export default function App() {
   };
 
   return (
-    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-12">
+    <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 max-w-md animate-bounce">
           <div
@@ -1084,24 +974,25 @@ export default function App() {
         </div>
       )}
 
-      <header className="bg-indigo-950 text-white shadow-lg sticky top-0 z-30">
+      {/* HEADER PRINCIPAL */}
+      <header className="bg-indigo-950 text-white shadow-md sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="bg-indigo-800/80 p-2.5 rounded-xl border border-indigo-700">
+              <div className="bg-indigo-800 p-2.5 rounded-xl border border-indigo-700 shadow-inner">
                 <Wallet className="w-7 h-7 text-emerald-400" />
               </div>
               <div>
-                <h1 className="text-lg sm:text-xl font-bold tracking-tight text-white">
+                <h1 className="text-xl font-bold tracking-tight text-white">
                   Tesorería & Recaudos Eclesiásticos
                 </h1>
                 <p className="text-xs text-indigo-200">
-                  Sistema de control financiero transparente y sincronizado
+                  Sincronizado en tiempo real por Supabase • Multidispositivo
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-indigo-900/90 p-1.5 rounded-xl border border-indigo-800 self-start md:self-auto">
+            <div className="flex items-center gap-2 bg-indigo-900/90 p-1.5 rounded-xl border border-indigo-800">
               <button
                 onClick={() => setActiveRole('RECAUDADOR')}
                 className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
@@ -1110,8 +1001,8 @@ export default function App() {
                     : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
                 }`}
               >
-                {isRecaudadorAuth ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                <span>Módulo Recaudador</span>
+                {isRecaudadorAuth ? <Unlock className="w-4 h-4 text-emerald-600" /> : <Lock className="w-4 h-4" />}
+                <span>Módulo Recaudadores</span>
               </button>
 
               <button
@@ -1122,10 +1013,10 @@ export default function App() {
                     : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
                 }`}
               >
-                {isTesoreroAuth ? <Unlock className="w-4 h-4" /> : <Lock className="w-4 h-4" />}
-                <span>Tesorería</span>
+                {isTesoreroAuth ? <Unlock className="w-4 h-4 text-indigo-950" /> : <Lock className="w-4 h-4" />}
+                <span>Tesorería Central</span>
                 {kpis.cantidadPendientes > 0 && (
-                  <span className="ml-1 px-1.5 py-0.5 text-xs font-bold rounded-full bg-amber-400 text-indigo-950">
+                  <span className="ml-1 px-2 py-0.5 text-xs font-bold rounded-full bg-amber-400 text-indigo-950">
                     {kpis.cantidadPendientes}
                   </span>
                 )}
@@ -1136,15 +1027,16 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {/* ================= MODULO RECAUDADOR ================= */}
         {activeRole === 'RECAUDADOR' && (
           <>
             {!isRecaudadorAuth ? (
-              <div className="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-lg border border-slate-200 p-8 text-center">
-                <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
+                <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <HandCoins className="w-8 h-8" />
                 </div>
                 <h2 className="text-xl font-bold text-slate-900">Acceso Recaudadores</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de seguridad para registrar recaudos.</p>
+                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de seguridad asignado.</p>
 
                 <form onSubmit={handleRecaudadorLogin} className="mt-6 space-y-4">
                   <div>
@@ -1174,20 +1066,17 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Recaudador Autorizado en Línea</span>
+                    <span className="text-sm font-bold text-slate-800">Recaudador Autorizado (Sincronizado)</span>
                   </div>
-
                   <div className="flex items-center gap-2 flex-wrap">
                     <button
-                      type="button"
                       onClick={() => setShowCambiarPinRecaudador(true)}
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN de Acceso
+                      Cambiar PIN
                     </button>
                     <button
-                      type="button"
                       onClick={() => setIsRecaudadorAuth(false)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
@@ -1198,34 +1087,33 @@ export default function App() {
                 </div>
 
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                  {/* FORMULARIO */}
                   <div className="lg:col-span-5">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden">
-                      <div
-                        className={`px-6 py-4 text-white transition-colors ${
-                          editingRecaudoId ? 'bg-amber-700' : 'bg-indigo-900'
-                        }`}
-                      >
-                        <div className="flex items-center justify-between gap-2">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden sticky top-24">
+                      <div className={`px-6 py-4 text-white ${editingRecaudoId ? 'bg-amber-700' : 'bg-indigo-950'}`}>
+                        <div className="flex items-center justify-between">
                           <div className="flex items-center gap-2">
-                            {editingRecaudoId ? (
-                              <Edit3 className="w-5 h-5 text-amber-200" />
-                            ) : (
-                              <PlusCircle className="w-5 h-5 text-emerald-400" />
-                            )}
+                            {editingRecaudoId ? <Edit3 className="w-5 h-5 text-amber-300" /> : <PlusCircle className="w-5 h-5 text-emerald-400" />}
                             <h2 className="font-bold text-base">
-                              {editingRecaudoId ? 'Modificar Registro de Recaudo' : 'Registrar Nuevo Recaudo'}
+                              {editingRecaudoId ? 'Modificar Recaudo' : 'Registrar Recaudo de Actividad'}
                             </h2>
                           </div>
                           {editingRecaudoId && (
                             <button
-                              type="button"
-                              onClick={handleCancelarEdicionRecaudo}
-                              className="px-2.5 py-1 rounded-lg bg-white/15 hover:bg-white/25 text-white text-xs font-bold"
+                              onClick={() => {
+                                setEditingRecaudoId(null);
+                                setRecDescripcion('');
+                                setRecCompradores([]);
+                              }}
+                              className="px-2.5 py-1 rounded bg-white/20 text-xs font-bold hover:bg-white/30"
                             >
                               Cancelar
                             </button>
                           )}
                         </div>
+                        <p className="text-xs text-indigo-200 mt-0.5">
+                          Registra ventas por unidades (con deudores/abonos) o recaudos generales.
+                        </p>
                       </div>
 
                       <form onSubmit={handleRegistrarRecaudo} className="p-6 space-y-4">
@@ -1234,21 +1122,17 @@ export default function App() {
                             type="button"
                             onClick={() => setModoRecaudo('UNIDADES')}
                             className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
-                              modoRecaudo === 'UNIDADES'
-                                ? 'bg-indigo-900 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
+                              modoRecaudo === 'UNIDADES' ? 'bg-indigo-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             <Package className="w-3.5 h-3.5" />
-                            Por Unidades (Tamales/Bollos)
+                            Por Unidades / Inventario
                           </button>
                           <button
                             type="button"
                             onClick={() => setModoRecaudo('GENERAL')}
                             className={`flex items-center justify-center gap-1.5 py-2 px-3 rounded-lg text-xs font-bold transition-all ${
-                              modoRecaudo === 'GENERAL'
-                                ? 'bg-indigo-900 text-white shadow-xs'
-                                : 'text-slate-600 hover:text-slate-900'
+                              modoRecaudo === 'GENERAL' ? 'bg-indigo-950 text-white shadow-xs' : 'text-slate-600 hover:text-slate-900'
                             }`}
                           >
                             <Banknote className="w-3.5 h-3.5" />
@@ -1258,40 +1142,31 @@ export default function App() {
 
                         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Fecha
-                            </label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha</label>
                             <input
                               type="date"
                               required
                               value={recFecha}
                               onChange={(e) => setRecFecha(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                             />
                           </div>
-
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Actividad / Evento
-                            </label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Actividad</label>
                             <select
                               value={recActividad}
                               onChange={(e) => setRecActividad(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
                             >
                               {ACTIVIDADES_RECAUDO.map((act) => (
-                                <option key={act} value={act}>
-                                  {act}
-                                </option>
+                                <option key={act} value={act}>{act}</option>
                               ))}
                             </select>
                           </div>
                         </div>
 
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                            Nombre del Recaudador Responsable
-                          </label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre del Recaudador Responsable</label>
                           <input
                             type="text"
                             required
@@ -1306,9 +1181,7 @@ export default function App() {
                           <div className="space-y-4">
                             <div className="grid grid-cols-2 gap-3 bg-indigo-50/70 p-3.5 rounded-xl border border-indigo-100">
                               <div>
-                                <label className="block text-[11px] font-bold uppercase text-indigo-950 mb-1">
-                                  Cantidad Producida
-                                </label>
+                                <label className="block text-[11px] font-bold uppercase text-indigo-950 mb-1">Cantidad Producida</label>
                                 <input
                                   type="number"
                                   min="1"
@@ -1319,9 +1192,7 @@ export default function App() {
                                 />
                               </div>
                               <div>
-                                <label className="block text-[11px] font-bold uppercase text-indigo-950 mb-1">
-                                  Precio Unitario ($)
-                                </label>
+                                <label className="block text-[11px] font-bold uppercase text-indigo-950 mb-1">Precio Unitario ($)</label>
                                 <input
                                   type="number"
                                   min="100"
@@ -1333,28 +1204,41 @@ export default function App() {
                                 />
                               </div>
                               <div className="col-span-2 flex items-center justify-between pt-2 border-t border-indigo-200 text-xs">
-                                <span className="font-semibold text-indigo-900">Total Esperado en Venta:</span>
-                                <span className="font-extrabold text-indigo-950 text-sm">
-                                  {formatCOP(resumenFormUnidades.totalEsperado)}
-                                </span>
+                                <span className="font-semibold text-indigo-900">Total Esperado ({resumenFormUnidades.producidas} unid.):</span>
+                                <span className="font-extrabold text-indigo-950 text-sm">{formatCOP(resumenFormUnidades.totalEsperado)}</span>
                               </div>
                             </div>
 
+                            {/* TARJETAS DE RESUMEN EN VIVO DE CAJA */}
+                            <div className="grid grid-cols-3 gap-2">
+                              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-emerald-800 block">En Mano</span>
+                                <span className="text-xs font-extrabold text-emerald-950">{formatCOP(resumenFormUnidades.plataRecaudada)}</span>
+                              </div>
+                              <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-rose-800 block">Fiados ({resumenFormUnidades.unidadesFiadas})</span>
+                                <span className="text-xs font-extrabold text-rose-950">{formatCOP(resumenFormUnidades.plataFiada)}</span>
+                              </div>
+                              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-amber-800 block">Sin Vender</span>
+                                <span className="text-xs font-extrabold text-amber-950">{formatCOP(resumenFormUnidades.plataSinVender)}</span>
+                              </div>
+                            </div>
+
+                            {/* SECCION COMPRADORES */}
                             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold uppercase text-slate-700 flex items-center gap-1.5">
                                   <Users className="w-3.5 h-3.5 text-indigo-700" />
                                   Compradores y Deudores
                                 </span>
-                                <span className="text-[11px] font-semibold text-slate-500">
-                                  Disponibles: {resumenFormUnidades.unidadesSinVender}
-                                </span>
+                                <span className="text-[11px] font-semibold text-slate-500">Quedan {resumenFormUnidades.unidadesSinVender} unid. libres</span>
                               </div>
 
                               <div className="grid grid-cols-12 gap-2">
                                 <input
                                   type="text"
-                                  placeholder="Nombre..."
+                                  placeholder="Nombre persona..."
                                   value={nuevoCompNombre}
                                   onChange={(e) => setNuevoCompNombre(e.target.value)}
                                   className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs"
@@ -1362,7 +1246,6 @@ export default function App() {
                                 <input
                                   type="number"
                                   min="1"
-                                  placeholder="Cant."
                                   value={nuevoCompCantidad}
                                   onChange={(e) => setNuevoCompCantidad(e.target.value)}
                                   className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center"
@@ -1370,7 +1253,7 @@ export default function App() {
                                 <select
                                   value={nuevoCompEstado}
                                   onChange={(e) => setNuevoCompEstado(e.target.value)}
-                                  className="col-span-3 px-1.5 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
+                                  className="col-span-3 px-1 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
                                 >
                                   <option value="PAGADO">Pagado</option>
                                   <option value="FIADO">Fiado</option>
@@ -1378,8 +1261,7 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={handleAgregarCompradorForm}
-                                  className="col-span-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-lg flex items-center justify-center transition-all"
-                                  title="Agregar persona"
+                                  className="col-span-2 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg flex items-center justify-center transition-all"
                                 >
                                   <UserPlus className="w-4 h-4" />
                                 </button>
@@ -1407,13 +1289,13 @@ export default function App() {
                                     const saldoC = Math.max(0, totalC - abonoC);
 
                                     return (
-                                      <div key={c.id} className="px-2.5 py-2 flex items-center justify-between gap-2 text-xs">
+                                      <div key={c.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
                                         <div>
                                           <span className="font-bold text-slate-800">{c.nombre}</span>
                                           <span className="text-slate-500 ml-1">({c.cantidad} unid)</span>
                                           {saldoC > 0 && (
                                             <span className="block text-[10px] text-rose-700 font-semibold">
-                                              Debe: {formatCOP(saldoC)}
+                                              Abono: {formatCOP(abonoC)} | Debe: {formatCOP(saldoC)}
                                             </span>
                                           )}
                                         </div>
@@ -1425,7 +1307,7 @@ export default function App() {
                                               saldoC === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                             }`}
                                           >
-                                            {saldoC === 0 ? 'Pagado' : 'Fiado'}
+                                            {saldoC === 0 ? 'Pagado ✓' : 'Fiado'}
                                           </button>
                                           <button
                                             type="button"
@@ -1444,9 +1326,7 @@ export default function App() {
                           </div>
                         ) : (
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Valor Total Recaudado ($)
-                            </label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor Total Recaudado ($)</label>
                             <input
                               type="number"
                               min="100"
@@ -1454,56 +1334,55 @@ export default function App() {
                               required
                               value={recMonto}
                               onChange={(e) => setRecMonto(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
                             />
                           </div>
                         )}
 
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Descripción / Detalle
-                            </label>
-                            <input
-                              type="text"
-                              placeholder="Ej. Ofrenda culto dominical..."
-                              value={recDescripcion}
-                              onChange={(e) => setRecDescripcion(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
-                            />
-                          </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Descripción / Detalle</label>
+                          <input
+                            type="text"
+                            placeholder={modoRecaudo === 'UNIDADES' ? 'Opcional en modo unidades..' : 'Ej. Ofrenda especial culto...'}
+                            value={recDescripcion}
+                            onChange={(e) => setRecDescripcion(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
 
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">
-                              Método de Pago
-                            </label>
-                            <select
-                              value={recMetodo}
-                              onChange={(e) => setRecMetodo(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                            >
-                              <option value="Efectivo">Efectivo</option>
-                              <option value="Transferencia / Nequi">Transferencia / Nequi</option>
-                            </select>
-                          </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Método de Recaudo</label>
+                          <select
+                            value={recMetodo}
+                            onChange={(e) => setRecMetodo(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                          >
+                            <option value="Efectivo">Efectivo</option>
+                            <option value="Transferencia / Nequi">Transferencia / Nequi</option>
+                          </select>
                         </div>
 
                         <button
                           type="submit"
-                          className={`w-full py-3 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
+                          className={`w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
                             editingRecaudoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
                           }`}
                         >
-                          {editingRecaudoId ? 'Guardar Cambios del Recaudo' : 'Registrar y Enviar a Tesorería'}
+                          <PlusCircle className="w-4 h-4" />
+                          {editingRecaudoId ? 'Guardar Cambios del Recaudo' : 'Enviar Recaudo a Tesorería'}
                         </button>
                       </form>
                     </div>
                   </div>
 
+                  {/* HISTORIAL RECAUDADOR */}
                   <div className="lg:col-span-7 space-y-4">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <div className="flex items-center justify-between mb-4">
-                        <h2 className="text-lg font-bold text-slate-900">Historial de Recaudos</h2>
+                      <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
+                        <div>
+                          <h2 className="text-base font-bold text-slate-900">Historial de Actividades y Cartera</h2>
+                          <p className="text-xs text-slate-500">Gestiona abonos de deudores y revisa el estado de entrega al tesorero.</p>
+                        </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
                           {movimientos.filter((m) => m.tipo === 'INGRESO').length} registros
                         </span>
@@ -1511,7 +1390,7 @@ export default function App() {
 
                       <div className="space-y-4">
                         {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
-                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                             <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía.</p>
                           </div>
                         ) : (
@@ -1522,7 +1401,7 @@ export default function App() {
                               const isExpanded = !!expandedRows[item.id];
 
                               return (
-                                <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60">
+                                <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
                                   <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
                                     <div>
                                       <div className="flex items-center gap-2 flex-wrap">
@@ -1532,23 +1411,26 @@ export default function App() {
                                         <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
-                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                      <p className="text-xs text-slate-600 mt-1 font-medium">{item.descripcion}</p>
                                       <p className="text-xs font-semibold text-slate-700 mt-1">
                                         Responsable: {item.responsable} ({item.metodoPago})
                                       </p>
                                     </div>
 
-                                    <div className="flex sm:flex-col items-end justify-between gap-2">
-                                      <span className="text-lg font-extrabold text-slate-900">
-                                        {formatCOP(item.montoReportado)}
-                                      </span>
+                                    <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
+                                      <div className="text-right">
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Recaudado en mano:</span>
+                                        <span className="text-lg font-extrabold text-slate-900">
+                                          {formatCOP(item.montoReportado)}
+                                        </span>
+                                      </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
                                         {item.estado !== 'VERIFICADO' && (
                                           <>
                                             {item.edicionAutorizada ? (
                                               <button
                                                 type="button"
-                                                onClick={() => handleIniciarEdicionRecaudo(item)}
+                                                onClick={() => handleIniciarEdicion(item)}
                                                 className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
                                               >
                                                 Editar (Autorizado)
@@ -1576,23 +1458,32 @@ export default function App() {
                                     </div>
                                   </div>
 
+                                  {item.notaTesorero && (
+                                    <div className="bg-indigo-50/80 border border-indigo-100 p-2.5 rounded-xl text-xs text-indigo-950 flex items-start gap-2">
+                                      <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                                      <div>
+                                        <strong className="font-bold">Nota Tesorería:</strong> {item.notaTesorero}
+                                      </div>
+                                    </div>
+                                  )}
+
                                   {inv.esUnidades && (
-                                    <div className="mt-3 pt-3 border-t border-slate-200 space-y-2.5">
+                                    <div className="pt-2 border-t border-slate-200 space-y-2.5">
                                       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-[11px]">
-                                        <div className="bg-white px-2 py-1.5 rounded-lg border border-slate-200">
-                                          <span className="text-slate-400 block">Producidas</span>
-                                          <span className="font-bold text-slate-800">{inv.producidas}</span>
+                                        <div className="bg-white px-2.5 py-2 rounded-xl border border-slate-200">
+                                          <span className="text-slate-400 block text-[10px]">Producidas</span>
+                                          <span className="font-bold text-slate-800">{inv.producidas} × {formatCOP(inv.precioUnitario)}</span>
                                         </div>
-                                        <div className="bg-emerald-50 px-2 py-1.5 rounded-lg border border-emerald-200">
-                                          <span className="text-emerald-700 block">Pagadas</span>
+                                        <div className="bg-emerald-50 px-2.5 py-2 rounded-xl border border-emerald-200">
+                                          <span className="text-emerald-700 block text-[10px]">Recaudado ({inv.unidadesPagadas} pag.)</span>
                                           <span className="font-extrabold text-emerald-900">{formatCOP(inv.plataPagada)}</span>
                                         </div>
-                                        <div className="bg-rose-50 px-2 py-1.5 rounded-lg border border-rose-200">
-                                          <span className="text-rose-700 block">Fiados</span>
+                                        <div className="bg-rose-50 px-2.5 py-2 rounded-xl border border-rose-200">
+                                          <span className="text-rose-700 block text-[10px]">Fiados ({inv.unidadesFiadas} unid.)</span>
                                           <span className="font-extrabold text-rose-900">{formatCOP(inv.plataFiada)}</span>
                                         </div>
-                                        <div className="bg-amber-50 px-2 py-1.5 rounded-lg border border-amber-200">
-                                          <span className="text-amber-700 block">Sin vender</span>
+                                        <div className="bg-amber-50 px-2.5 py-2 rounded-xl border border-amber-200">
+                                          <span className="text-amber-700 block text-[10px]">Sin vender ({inv.unidadesSinVender} unid.)</span>
                                           <span className="font-extrabold text-amber-900">{formatCOP(inv.plataSinVender)}</span>
                                         </div>
                                       </div>
@@ -1602,48 +1493,57 @@ export default function App() {
                                           <button
                                             type="button"
                                             onClick={() => toggleExpandRow(item.id)}
-                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950"
+                                            className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950 pt-1"
                                           >
                                             <Users className="w-3.5 h-3.5" />
-                                            {isExpanded ? 'Ocultar lista de compradores' : `Ver compradores (${item.compradores.length})`}
+                                            {isExpanded ? 'Ocultar lista de compradores y deudores' : `Ver compradores y deudores (${item.compradores.length})`}
                                           </button>
 
                                           {isExpanded && (
-                                            <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100">
+                                            <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-2 space-y-2">
                                               {item.compradores.map((c) => {
                                                 const totalComp = c.cantidad * inv.precioUnitario;
                                                 const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : Math.min(totalComp, Number(c.montoAbonado) || 0);
                                                 const saldoPendiente = Math.max(0, totalComp - abonoActual);
 
                                                 return (
-                                                  <div key={c.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
+                                                  <div key={c.id} className="p-2 flex items-center justify-between gap-2 text-xs rounded-lg hover:bg-slate-50">
                                                     <div>
                                                       <span className="font-bold text-slate-800">{c.nombre}</span>
-                                                      <span className="text-slate-500 ml-1">• {c.cantidad} unid.</span>
+                                                      <span className="text-slate-500 ml-1">• {c.cantidad} unid. ({formatCOP(totalComp)})</span>
                                                       {saldoPendiente > 0 && (
-                                                        <span className="block text-[10px] text-rose-700 font-bold">
-                                                          Debe: {formatCOP(saldoPendiente)}
+                                                        <span className="block text-[11px] text-rose-700 font-bold">
+                                                          Abonado: {formatCOP(abonoActual)} | Debe: {formatCOP(saldoPendiente)}
                                                         </span>
                                                       )}
                                                     </div>
                                                     <div className="flex items-center gap-2">
                                                       {saldoPendiente > 0 && (
-                                                        <button
-                                                          type="button"
-                                                          onClick={() => openAbonoModal(item, c)}
-                                                          className="px-2 py-1 rounded bg-indigo-900 text-white text-[10px] font-bold hover:bg-indigo-800"
-                                                        >
-                                                          Abonar
-                                                        </button>
+                                                        <>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => openAbonoModal(item, c)}
+                                                            className="px-2.5 py-1 rounded-lg bg-indigo-950 text-white text-[11px] font-bold hover:bg-indigo-900 shadow-xs"
+                                                          >
+                                                            Abonar
+                                                          </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => handleSaldarTodoComprador(item.id, c.id)}
+                                                            className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold hover:bg-emerald-700 shadow-xs"
+                                                          >
+                                                            Saldar Todo
+                                                          </button>
+                                                        </>
                                                       )}
                                                       <button
                                                         type="button"
                                                         onClick={() => handleTogglePagoCompradorExistente(item.id, c.id)}
-                                                        className={`px-2 py-1 rounded text-[10px] font-bold ${
+                                                        className={`px-3 py-1 rounded-full text-xs font-bold ${
                                                           saldoPendiente === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
                                                         }`}
                                                       >
-                                                        {saldoPendiente === 0 ? 'Pagado' : 'Saldar'}
+                                                        {saldoPendiente === 0 ? 'Pagado ✓' : 'Fiado'}
                                                       </button>
                                                     </div>
                                                   </div>
@@ -1668,15 +1568,16 @@ export default function App() {
           </>
         )}
 
+        {/* ================= MODULO TESORERO ================= */}
         {activeRole === 'TESORERO' && (
           <>
             {!isTesoreroAuth ? (
-              <div className="max-w-md mx-auto mt-10 bg-white rounded-2xl shadow-lg border border-slate-200 p-8 text-center">
-                <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4">
+              <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
+                <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <ShieldCheck className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Acceso Tesorería</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería para administrar fondos y libros.</p>
+                <h2 className="text-xl font-bold text-slate-900">Acceso Tesorería Central</h2>
+                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería para validar ingresos y arqueos.</p>
 
                 <form onSubmit={handleTesoreroLogin} className="mt-6 space-y-4">
                   <div>
@@ -1706,7 +1607,7 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Tesorero Autorizado en Línea</span>
+                    <span className="text-sm font-bold text-slate-800">Tesorero Autorizado (En Línea)</span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
@@ -1715,14 +1616,14 @@ export default function App() {
                       className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN de Acceso
+                      Cambiar PIN
                     </button>
                     <button
                       onClick={handleExportCSV}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
-                      Descargar Excel (CSV)
+                      Descargar Excel
                     </button>
                     <button
                       onClick={() => setShowBorrarTodoModal(true)}
@@ -1741,67 +1642,110 @@ export default function App() {
                   </div>
                 </div>
 
+                {/* TARJETAS DE KPIs SUPERIORES */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Entradas Verificadas</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Entradas</span>
+                      <ArrowUpRight className="w-4 h-4 text-emerald-600" />
+                    </div>
                     <p className="text-lg font-extrabold text-slate-900 mt-2">{formatCOP(kpis.totalEntradasVerificadas)}</p>
+                    <span className="text-[10px] text-emerald-700 font-semibold mt-1 block">Dinero contado en caja</span>
                   </div>
+
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Salidas / Gastos</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Salidas</span>
+                      <ArrowDownRight className="w-4 h-4 text-rose-600" />
+                    </div>
                     <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.totalSalidas)}</p>
+                    <span className="text-[10px] text-slate-500 font-semibold mt-1 block">Gastos e insumos pagados</span>
                   </div>
+
                   <div className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo Real en Caja</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo en Caja</span>
+                      <Wallet className="w-4 h-4 text-emerald-400" />
+                    </div>
                     <p className="text-xl font-extrabold text-emerald-400 mt-2">{formatCOP(kpis.saldoRealEnCaja)}</p>
+                    <span className="text-[10px] text-indigo-200 font-semibold mt-1 block">Entradas - Salidas</span>
                   </div>
+
                   <div className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Pendiente Recoger</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-amber-800">Pendiente Recoger</span>
+                      <Clock className="w-4 h-4 text-amber-600" />
+                    </div>
                     <p className="text-lg font-extrabold text-amber-700 mt-2">{formatCOP(kpis.pendientePorRecoger)}</p>
+                    <span className="text-[10px] text-amber-800 font-semibold mt-1 block">{kpis.cantidadPendientes} entrega(s) por recibir</span>
                   </div>
+
                   <div className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">En Calle (Fiados/Stock)</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">Cartera / En Calle</span>
+                      <ShoppingBag className="w-4 h-4 text-indigo-600" />
+                    </div>
                     <p className="text-lg font-extrabold text-indigo-900 mt-2">{formatCOP(kpis.totalCarteraYSinVender)}</p>
+                    <span className="text-[10px] text-indigo-800 font-semibold mt-1 block">Fiados y sin vender</span>
                   </div>
+
                   <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm">
-                    <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre Acumulado</span>
+                    <div className="flex justify-between items-start">
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre Revisión</span>
+                      <AlertTriangle className="w-4 h-4 text-rose-600" />
+                    </div>
                     <p className="text-lg font-extrabold text-rose-700 mt-2">{formatCOP(kpis.descuadreAcumulado)}</p>
+                    <span className="text-[10px] text-rose-800 font-semibold mt-1 block">{kpis.cantidadDescuadres} novedad(es) en arqueo</span>
                   </div>
                 </div>
 
+                {/* PESTAÑAS DE TESORERÍA */}
                 <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                   <button
                     onClick={() => setTesoreroTab('BANDEJA')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'BANDEJA' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      tesoreroTab === 'BANDEJA' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    Recepción y Permisos ({kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesEdicion})
+                    <Calculator className="w-4 h-4" />
+                    <span>Recepción, Arqueo y Permisos</span>
+                    {kpis.cantidadPendientes + kpis.cantidadDescuadres > 0 && (
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
+                        {kpis.cantidadPendientes + kpis.cantidadDescuadres}
+                      </span>
+                    )}
                   </button>
+
                   <button
                     onClick={() => setTesoreroTab('EGRESOS')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'EGRESOS' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      tesoreroTab === 'EGRESOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    Registrar Gasto o Salida
+                    <TrendingDown className="w-4 h-4 text-rose-400" />
+                    <span>Registrar Salida / Gasto</span>
                   </button>
+
                   <button
                     onClick={() => setTesoreroTab('LIBRO')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all ${
-                      tesoreroTab === 'LIBRO' ? 'bg-indigo-900 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      tesoreroTab === 'LIBRO' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    Libro Único de Tesorería ({movimientos.length})
+                    <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
+                    <span>Libro Único Completo ({movimientos.length})</span>
                   </button>
                 </div>
 
+                {/* BANDEJA DE RECEPCIÓN Y ARQUEOS */}
                 {tesoreroTab === 'BANDEJA' && (
                   <div className="space-y-6">
+                    {/* SOLICITUDES DE EDICIÓN */}
                     {kpis.cantidadSolicitudesEdicion > 0 && (
-                      <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5">
+                      <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5 shadow-sm">
                         <h3 className="font-bold text-indigo-950 text-sm mb-3 flex items-center gap-2">
                           <Edit3 className="w-4 h-4 text-indigo-800" />
-                          Solicitudes de Edición de Recaudadores
+                          Solicitudes de Edición Pendientes
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                           {movimientos
@@ -1841,70 +1785,127 @@ export default function App() {
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* PENDIENTES POR RECOGER */}
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                        <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                          <Clock className="w-4 h-4 text-amber-600" />
-                          Recaudos Pendientes por Recoger
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                            <Clock className="w-5 h-5 text-amber-600" />
+                            Pendientes por Recoger ({movimientos.filter((m) => m.estado === 'PENDIENTE').length})
+                          </h3>
+                          <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
+                            {formatCOP(kpis.pendientePorRecoger)}
+                          </span>
+                        </div>
+
                         {movimientos.filter((m) => m.estado === 'PENDIENTE').length === 0 ? (
-                          <p className="text-sm text-slate-500 py-8 text-center">No hay recaudos pendientes de recolección.</p>
+                          <p className="text-sm text-slate-500 py-10 text-center">No hay recaudos pendientes por recibir.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
                               .filter((m) => m.estado === 'PENDIENTE')
-                              .map((item) => (
-                                <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 flex justify-between items-center gap-3">
-                                  <div>
-                                    <span className="text-xs font-mono font-bold text-amber-900">{item.id}</span>
-                                    <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
-                                    <p className="text-xs text-slate-600">Resp: {item.responsable} • {item.fecha}</p>
+                              .map((item) => {
+                                const inv = calcularResumenInventario(item);
+                                return (
+                                  <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
+                                    <div>
+                                      <div className="flex items-center gap-2">
+                                        <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">{item.id}</span>
+                                        <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
+                                      </div>
+                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                      <p className="text-xs font-semibold text-slate-700 mt-0.5">
+                                        Entregará: {item.responsable} ({item.metodoPago}) • {item.fecha}
+                                      </p>
+                                      {inv.esUnidades && (
+                                        <div className="text-[11px] text-slate-500 mt-1 flex gap-3">
+                                          <span>Fiados: {inv.unidadesFiadas} unid. ({formatCOP(inv.plataFiada)})</span>
+                                          <span>Sin vender: {inv.unidadesSinVender} unid. ({formatCOP(inv.plataSinVender)})</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                    <div className="text-right shrink-0 w-full sm:w-auto flex sm:flex-col justify-between items-center sm:items-end">
+                                      <span className="font-extrabold text-base text-slate-900">{formatCOP(item.montoReportado)}</span>
+                                      <button
+                                        onClick={() => openArqueoModal(item)}
+                                        className="mt-1 px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                                      >
+                                        <Calculator className="w-3.5 h-3.5" />
+                                        Recibir y Contar
+                                      </button>
+                                    </div>
                                   </div>
-                                  <div className="text-right shrink-0">
-                                    <span className="font-extrabold text-sm block text-slate-900">{formatCOP(item.montoReportado)}</span>
-                                    <button
-                                      onClick={() => openArqueoModal(item)}
-                                      className="mt-1 px-3 py-1.5 bg-indigo-900 hover:bg-indigo-800 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
-                                    >
-                                      Recibir y Arquear
-                                    </button>
-                                  </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                           </div>
                         )}
                       </div>
 
+                      {/* DESCUADRES EN REVISIÓN */}
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
-                        <h3 className="font-bold text-slate-900 mb-4 flex items-center gap-2">
-                          <AlertTriangle className="w-4 h-4 text-rose-600" />
-                          Descuadres en Revisión
-                        </h3>
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5 text-rose-600" />
+                            Descuadres en Revisión ({movimientos.filter((m) => m.estado === 'DESCUADRE').length})
+                          </h3>
+                          <span className="text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200">
+                            {formatCOP(kpis.descuadreAcumulado)}
+                          </span>
+                        </div>
+
                         {movimientos.filter((m) => m.estado === 'DESCUADRE').length === 0 ? (
-                          <p className="text-sm text-slate-500 py-8 text-center">No hay descuadres reportados.</p>
+                          <p className="text-sm text-slate-500 py-10 text-center">No hay descuadres ni novedades en arqueo.</p>
                         ) : (
                           <div className="space-y-3">
                             {movimientos
                               .filter((m) => m.estado === 'DESCUADRE')
-                              .map((item) => (
-                                <div key={item.id} className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-2">
-                                  <div className="flex justify-between items-start">
-                                    <div>
-                                      <span className="text-xs font-mono font-bold text-rose-900">{item.id}</span>
-                                      <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
-                                      <p className="text-xs text-slate-600">Resp: {item.responsable}</p>
+                              .map((item) => {
+                                const diff = (Number(item.montoReportado) || 0) - (Number(item.montoRecibido) || 0);
+                                return (
+                                  <div key={item.id} className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-3">
+                                    <div className="flex justify-between items-start">
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono font-bold text-rose-900 bg-rose-100 px-1.5 py-0.5 rounded">{item.id}</span>
+                                          <h4 className="font-bold text-sm text-slate-900">{item.actividad} — {item.responsable}</h4>
+                                        </div>
+                                      </div>
+                                      <span className="px-2.5 py-1 bg-rose-600 text-white font-extrabold text-xs rounded-lg shadow-xs">
+                                        Faltan {formatCOP(Math.abs(diff))}
+                                      </span>
                                     </div>
-                                    <button
-                                      onClick={() => handleResolverDescuadre(item)}
-                                      className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
-                                    >
-                                      Cerrar y Aclarar
-                                    </button>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs bg-white p-2.5 rounded-lg border border-rose-100">
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px]">Reportado:</span>
+                                        <span className="font-extrabold text-slate-900">{formatCOP(item.montoReportado)}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px]">Contado en caja:</span>
+                                        <span className="font-extrabold text-emerald-700">{formatCOP(item.montoRecibido)}</span>
+                                      </div>
+                                    </div>
+
+                                    <p className="text-xs bg-white p-2.5 rounded-lg border border-rose-200 text-rose-900 font-medium italic">
+                                      "{item.notaTesorero}"
+                                    </p>
+
+                                    <div className="flex gap-2 pt-1">
+                                      <button
+                                        onClick={() => openArqueoModal(item)}
+                                        className="flex-1 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all"
+                                      >
+                                        Recontar Dinero
+                                      </button>
+                                      <button
+                                        onClick={() => handleAprobarAjusteDescuadre(item)}
+                                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                      >
+                                        Aprobar Ajuste y Cerrar Revisión
+                                      </button>
+                                    </div>
                                   </div>
-                                  <p className="text-xs bg-white p-2.5 rounded-lg border border-rose-200 text-rose-900 font-medium">
-                                    {item.notaTesorero}
-                                  </p>
-                                </div>
-                              ))}
+                                );
+                              })}
                           </div>
                         )}
                       </div>
@@ -1912,30 +1913,35 @@ export default function App() {
                   </div>
                 )}
 
+                {/* REGISTRAR SALIDA / GASTO */}
                 {tesoreroTab === 'EGRESOS' && (
                   <div className="max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="bg-slate-900 px-6 py-4 text-white">
-                      <h3 className="font-bold text-base">Registrar Gasto o Salida de Caja</h3>
-                      <p className="text-xs text-slate-400">Esta salida descontará saldo de la caja general de la iglesia.</p>
+                    <div className="bg-indigo-950 px-6 py-4 text-white">
+                      <h3 className="font-bold text-base flex items-center gap-2">
+                        <TrendingDown className="w-5 h-5 text-rose-400" />
+                        Registrar Salida de Dinero (Egreso de Caja)
+                      </h3>
+                      <p className="text-xs text-indigo-200 mt-0.5">Todo gasto registrado se descontará automáticamente del Saldo Real en Caja.</p>
                     </div>
+
                     <form onSubmit={handleRegistrarEgreso} className="p-6 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Fecha</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha del Gasto</label>
                           <input
                             type="date"
                             required
                             value={egrFecha}
                             onChange={(e) => setEgrFecha(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Categoría de Gasto</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Categoría del Egreso</label>
                           <select
                             value={egrCategoria}
                             onChange={(e) => setEgrCategoria(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
                           >
                             {CATEGORIAS_EGRESO.map((cat) => (
                               <option key={cat} value={cat}>{cat}</option>
@@ -1945,78 +1951,84 @@ export default function App() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Concepto / Descripción del Gasto</label>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Concepto / Detalle del Pago</label>
                         <input
                           type="text"
                           required
-                          placeholder="Ej. Compra de carbón e insumos para tamales..."
+                          placeholder="Ej. Compra de gas, carne y desechables para venta dominical..."
                           value={egrConcepto}
                           onChange={(e) => setEgrConcepto(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                         />
                       </div>
 
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Autoriza / Responsable</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Persona que Recibe / Autoriza</label>
                           <input
                             type="text"
                             required
-                            placeholder="Ej. Pastor / Tesorero"
+                            placeholder="Ej. Hno. Carlos Ruiz"
                             value={egrResponsable}
                             onChange={(e) => setEgrResponsable(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Valor del Gasto ($)</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor de Salida (COP $)</label>
                           <input
                             type="number"
                             min="100"
                             step="100"
                             required
-                            placeholder="Ej. 150000"
+                            placeholder="Ej. 85000"
                             value={egrMonto}
                             onChange={(e) => setEgrMonto(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-rose-700"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-rose-700 bg-white"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1.5">Nota u Observación (Opcional)</label>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Número de Factura o Soporte (Opcional)</label>
                         <input
                           type="text"
-                          placeholder="Número de factura o detalles..."
+                          placeholder="Ej. Recibo #098 de Supermercado"
                           value={egrNota}
                           onChange={(e) => setEgrNota(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                         />
                       </div>
 
                       <button
                         type="submit"
-                        className="w-full py-3 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all"
+                        className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
                       >
-                        Registrar Salida en Tesorería
+                        <TrendingDown className="w-4 h-4" />
+                        Registrar Salida en el Libro Único
                       </button>
                     </form>
                   </div>
                 )}
 
+                {/* LIBRO ÚNICO COMPLETO */}
                 {tesoreroTab === 'LIBRO' && (
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
-                    <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4">
-                      <h3 className="text-lg font-bold text-slate-900">Libro Único de Tesorería</h3>
-                      <div className="flex items-center gap-2 w-full sm:w-auto">
+                    <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/50">
+                      <div>
+                        <h3 className="text-lg font-bold text-slate-900">Libro Único de Tesorería</h3>
+                        <p className="text-xs text-slate-500">Registro histórico unificado de ingresos, arqueos, descuadres y salidas.</p>
+                      </div>
+
+                      <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
                         <div className="relative flex-1 sm:w-64">
                           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                           <input
                             type="text"
-                            placeholder="Buscar en el libro..."
+                            placeholder="Buscar actividad o persona..."
                             value={busquedaLibro}
                             onChange={(e) => setBusquedaLibro(e.target.value)}
-                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs outline-none focus:ring-2 focus:ring-indigo-600"
+                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs bg-white outline-none focus:ring-2 focus:ring-indigo-600"
                           />
                         </div>
                         <select
@@ -2024,7 +2036,7 @@ export default function App() {
                           onChange={(e) => setFiltroLibro(e.target.value)}
                           className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white"
                         >
-                          <option value="TODOS">Todos</option>
+                          <option value="TODOS">Todos los movimientos</option>
                           <option value="VERIFICADO">Verificados</option>
                           <option value="PENDIENTE">Pendientes</option>
                           <option value="DESCUADRE">Descuadres</option>
@@ -2033,53 +2045,101 @@ export default function App() {
                         </select>
                       </div>
                     </div>
+
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
                           <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b border-slate-200">
-                            <th className="py-3 px-4">Fecha / ID</th>
-                            <th className="py-3 px-4">Actividad / Concepto</th>
-                            <th className="py-3 px-4">Responsable</th>
-                            <th className="py-3 px-4 text-right">Reportado Mano</th>
-                            <th className="py-3 px-4 text-right">Entrada Real Caja</th>
-                            <th className="py-3 px-4 text-right">Salida / Gasto</th>
-                            <th className="py-3 px-4">Estado</th>
+                            <th className="py-3.5 px-4 font-bold">Fecha / ID</th>
+                            <th className="py-3.5 px-4 font-bold">Actividad / Concepto</th>
+                            <th className="py-3.5 px-4 font-bold">Responsable</th>
+                            <th className="py-3.5 px-4 font-bold text-right">Reportado</th>
+                            <th className="py-3.5 px-4 font-bold text-right text-emerald-800">Entrada Real</th>
+                            <th className="py-3.5 px-4 font-bold text-right text-rose-800">Salida</th>
+                            <th className="py-3.5 px-4 font-bold">Estado</th>
+                            <th className="py-3.5 px-4 font-bold text-center">Acción</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 text-sm">
                           {movimientosFiltrados.length === 0 ? (
                             <tr>
-                              <td colSpan="7" className="text-center py-10 text-slate-500 text-xs">
-                                No se encontraron registros con los filtros seleccionados.
+                              <td colSpan="8" className="text-center py-12 text-slate-500 text-xs font-medium">
+                                No se encontraron registros en el libro.
                               </td>
                             </tr>
                           ) : (
-                            movimientosFiltrados.map((m) => (
-                              <tr key={m.id} className="hover:bg-slate-50">
-                                <td className="py-3 px-4 text-xs font-semibold">
-                                  {m.fecha}
-                                  <div className="text-[10px] font-mono text-slate-400">{m.id}</div>
-                                </td>
-                                <td className="py-3 px-4 text-xs">
-                                  <span className="font-bold text-slate-900 block">{m.actividad}</span>
-                                  <span className="text-slate-600">{m.descripcion}</span>
-                                  {m.notaTesorero && (
-                                    <span className="block text-[10px] text-indigo-700 mt-0.5">Nota: {m.notaTesorero}</span>
-                                  )}
-                                </td>
-                                <td className="py-3 px-4 text-xs text-slate-700">{m.responsable}</td>
-                                <td className="py-3 px-4 text-right text-xs">
-                                  {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
-                                </td>
-                                <td className="py-3 px-4 text-right text-xs font-extrabold text-emerald-700">
-                                  {m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}
-                                </td>
-                                <td className="py-3 px-4 text-right text-xs font-extrabold text-rose-600">
-                                  {m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}
-                                </td>
-                                <td className="py-3 px-4">{renderEstadoBadge(m)}</td>
-                              </tr>
-                            ))
+                            movimientosFiltrados.map((m) => {
+                              const inv = calcularResumenInventario(m);
+                              return (
+                                <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
+                                  <td className="py-3.5 px-4 text-xs font-semibold">
+                                    <span className="block text-slate-900">{m.fecha}</span>
+                                    <span className="font-mono text-[10px] text-slate-400 font-bold">{m.id}</span>
+                                  </td>
+                                  <td className="py-3.5 px-4 text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-bold text-slate-900 text-sm">{m.actividad}</span>
+                                      {inv.esUnidades && (
+                                        <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 font-bold text-[10px]">
+                                          {inv.unidadesPagadas}/{inv.producidas} unid. pagadas
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-slate-600 block mt-0.5">{m.descripcion}</span>
+                                    {m.notaTesorero && (
+                                      <span className="block text-[11px] text-indigo-800 font-medium mt-1 bg-indigo-50/50 p-1.5 rounded border border-indigo-100">
+                                        Nota: {m.notaTesorero}
+                                      </span>
+                                    )}
+
+                                    {/* LISTA COMPRADORES EN EL LIBRO SI ES UNIDADES */}
+                                    {inv.esUnidades && m.compradores && m.compradores.length > 0 && (
+                                      <div className="mt-2 pt-2 border-t border-slate-100">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                          {m.compradores.map((c) => {
+                                            const totalC = c.cantidad * inv.precioUnitario;
+                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                            const saldoC = Math.max(0, totalC - abonoC);
+                                            return (
+                                              <div key={c.id} className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-[11px]">
+                                                <div className="flex justify-between font-bold text-slate-800">
+                                                  <span>{c.nombre}</span>
+                                                  <span className={saldoC === 0 ? 'text-emerald-700' : 'text-rose-700'}>
+                                                    {saldoC === 0 ? 'PAGADO ✓' : `Debe ${formatCOP(saldoC)}`}
+                                                  </span>
+                                                </div>
+                                                <span className="text-slate-500">{c.cantidad} unid. ({formatCOP(totalC)})</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
+                                    )}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-xs text-slate-700 font-medium">{m.responsable}</td>
+                                  <td className="py-3.5 px-4 text-right text-xs font-semibold text-slate-900">
+                                    {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right text-xs font-extrabold text-emerald-700">
+                                    {m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right text-xs font-extrabold text-rose-600">
+                                    {m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4">{renderEstadoBadge(m)}</td>
+                                  <td className="py-3.5 px-4 text-center">
+                                    {m.tipo === 'INGRESO' && m.estado !== 'VERIFICADO' && (
+                                      <button
+                                        onClick={() => openArqueoModal(m)}
+                                        className="px-3 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                      >
+                                        Arqueo
+                                      </button>
+                                    )}
+                                  </td>
+                                </tr>
+                              );
+                            })
                           )}
                         </tbody>
                       </table>
@@ -2092,7 +2152,7 @@ export default function App() {
         )}
       </main>
 
-      {/* Modales generales */}
+      {/* ================= MODALES SECUNDARIOS ================= */}
       {showCambiarPinRecaudador && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
@@ -2108,8 +2168,8 @@ export default function App() {
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
+                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
               </div>
             </form>
           </div>
@@ -2131,8 +2191,8 @@ export default function App() {
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
+                <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
               </div>
             </form>
           </div>
@@ -2142,11 +2202,11 @@ export default function App() {
       {showBorrarTodoModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-rose-700">¿Borrar todos los registros?</h3>
-            <p className="text-xs text-slate-600">Esta acción eliminará por completo todos los movimientos de la base de datos de Supabase. No se puede deshacer.</p>
+            <h3 className="font-bold text-base text-rose-700">¿Borrar todo el contenido?</h3>
+            <p className="text-xs text-slate-600">Se eliminarán todos los registros de la base de datos en Supabase.</p>
             <div className="flex gap-2 pt-2">
-              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
-              <button onClick={handleBorrarTodoContenido} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, borrar todo</button>
+              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleBorrarTodo} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs">Sí, borrar todo</button>
             </div>
           </div>
         </div>
@@ -2156,20 +2216,20 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
-            <p className="text-xs text-slate-500">Explica brevemente a Tesorería por qué necesitas modificar este recaudo:</p>
+            <p className="text-xs text-slate-500">Explica brevemente a Tesorería por qué necesitas corregir este registro:</p>
             <form onSubmit={handleEnviarSolicitudEdicion}>
               <textarea
                 rows={3}
                 required
-                placeholder="Motivo de la corrección..."
+                placeholder="Motivo..."
                 value={motivoSolicitudEdicion}
                 onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
                 className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-900 hover:bg-indigo-800 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
+                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
               </div>
             </form>
           </div>
@@ -2179,10 +2239,9 @@ export default function App() {
       {abonoModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-slate-900">Registrar Abono</h3>
+            <h3 className="font-bold text-base text-slate-900">Registrar Abono de Deuda</h3>
             <p className="text-xs text-slate-600">
-              Comprador: <strong>{abonoModal.comprador.nombre}</strong><br />
-              Saldo pendiente actual: <span className="text-rose-700 font-bold">{formatCOP(abonoModal.saldoPendiente)}</span>
+              Debe pendiente: <span className="text-rose-700 font-bold">{formatCOP(abonoModal.saldoPendiente)}</span>
             </p>
             <form onSubmit={handleConfirmarAbono}>
               <input
@@ -2193,11 +2252,11 @@ export default function App() {
                 required
                 value={valorAbonoInput}
                 onChange={(e) => setValorAbonoInput(e.target.value)}
-                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 text-center"
+                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 text-center bg-white"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
                 <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Guardar Abono</button>
               </div>
             </form>
@@ -2211,7 +2270,7 @@ export default function App() {
             <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Efectivo</h3>
             <p className="text-xs text-slate-600">
               Actividad: <strong>{arqueoItem.actividad}</strong> ({arqueoItem.responsable})<br />
-              Monto reportado por recaudador: <span className="font-bold text-indigo-900">{formatCOP(arqueoItem.montoReportado)}</span>
+              Reportado en mano: <span className="font-bold text-indigo-900">{formatCOP(arqueoItem.montoReportado)}</span>
             </p>
             <form onSubmit={handleConfirmarArqueo}>
               <div className="mb-3">
@@ -2223,7 +2282,7 @@ export default function App() {
                   required
                   value={montoFisicoContado}
                   onChange={(e) => setMontoFisicoContado(e.target.value)}
-                  className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 text-center"
+                  className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 text-center bg-white"
                   autoFocus
                 />
               </div>
@@ -2231,14 +2290,14 @@ export default function App() {
                 <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nota u Observación de Tesorería</label>
                 <textarea
                   rows={2}
-                  placeholder="Detalles del arqueo..."
+                  placeholder="Ej. Dinero contado exacto en sobre sellado..."
                   value={notaArqueo}
                   onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white"
                 />
               </div>
               <div className="flex gap-2">
-                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
                 <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Confirmar y Recibir</button>
               </div>
             </form>
