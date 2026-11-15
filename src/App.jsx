@@ -1114,10 +1114,7 @@ export default function App() {
         totalEntradasVerificadas += Number(m.montoRecibido) || 0;
 
         if (m.estado === 'PENDIENTE') {
-          // MODIFICACIÓN CLAVE: Suma el último abono reportado o el monto total según corresponda
-          const pendienteItem = Number(m.ultimoAbonoReportado) > 0 
-            ? Number(m.ultimoAbonoReportado) 
-            : Number(m.montoReportado) || 0;
+          const pendienteItem = Number(m.ultimoAbonoReportado) > 0 ? Number(m.ultimoAbonoReportado) : Number(m.montoReportado) || 0;
           pendientePorRecoger += pendienteItem;
           cantidadPendientes += 1;
         } else if (m.estado === 'DESCUADRE') {
@@ -2239,7 +2236,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={() => setUsuarioLogueadoTesorero(null)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
                       Cerrar Sesión
