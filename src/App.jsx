@@ -18,29 +18,27 @@ import {
   Lock,
   Unlock,
   Download,
-  RotateCcw,
   Search,
-  Filter,
-  Receipt,
   Calculator,
-  UserCheck,
   ArrowUpRight,
   ArrowDownRight,
   X,
   FileSpreadsheet,
   Info,
-  CreditCard,
   Banknote,
   Edit3,
   Package,
   Users,
   UserPlus,
   Trash2,
-  ChevronDown,
-  ChevronUp,
-  BadgeDollarSign,
   ShoppingBag,
-  KeyRound
+  UserCheck,
+  UserX,
+  ShieldAlert,
+  KeyRound,
+  HelpCircle,
+  Settings,
+  XCircle
 } from 'lucide-react';
 
 const formatCOP = (value) => {
@@ -63,6 +61,8 @@ const calcularResumenInventario = (item) => {
       plataPagada: Number(item.montoReportado) || 0,
       unidadesFiadas: 0,
       plataFiada: 0,
+      unidadesIncobrables: 0,
+      plataIncobrable: 0,
       unidadesSinVender: 0,
       plataSinVender: 0,
       totalUnidadesFaltantes: 0,
@@ -77,12 +77,21 @@ const calcularResumenInventario = (item) => {
 
   let unidadesPagadas = 0;
   let unidadesFiadas = 0;
+  let unidadesIncobrables = 0;
   let plataPagada = 0;
   let plataFiada = 0;
+  let plataIncobrable = 0;
 
   compradores.forEach((c) => {
     const cant = Number(c.cantidad) || 0;
     const totalComp = cant * precioUnitario;
+
+    if (c.estadoPago === 'INCOBRABLE') {
+      unidadesIncobrables += cant;
+      plataIncobrable += totalComp;
+      return;
+    }
+
     const abonado =
       c.estadoPago === 'PAGADO'
         ? totalComp
@@ -99,7 +108,7 @@ const calcularResumenInventario = (item) => {
     }
   });
 
-  const unidadesSinVender = Math.max(0, producidas - (unidadesPagadas + unidadesFiadas));
+  const unidadesSinVender = Math.max(0, producidas - (unidadesPagadas + unidadesFiadas + unidadesIncobrables));
   const plataSinVender = unidadesSinVender * precioUnitario;
   const totalUnidadesFaltantes = unidadesFiadas + unidadesSinVender;
   const totalPlataFaltante = plataFiada + plataSinVender;
@@ -113,23 +122,14 @@ const calcularResumenInventario = (item) => {
     plataPagada,
     unidadesFiadas,
     plataFiada,
+    unidadesIncobrables,
+    plataIncobrable,
     unidadesSinVender,
     plataSinVender,
     totalUnidadesFaltantes,
     totalPlataFaltante,
-    agotado: unidadesSinVender === 0,
   };
 };
-
-const ACTIVIDADES_RECAUDO = [
-  'Tamales / Bollos',
-  'Venta de Comidas',
-  'Rifa',
-  'Evento Juvenil',
-  'Ofrenda Especial',
-  'Bazar / Postres',
-  'Otro',
-];
 
 const CATEGORIAS_EGRESO = [
   'Insumos Cocina',
@@ -143,21 +143,32 @@ const CATEGORIAS_EGRESO = [
 
 export default function App() {
   const [movimientos, setMovimientos] = useState([]);
-  const [pinRecaudador, setPinRecaudador] = useState('2026');
-  const [pinTesorero, setPinTesorero] = useState('1234');
+  const [configuracionApp, setConfiguracionApp] = useState({
+    titulo: 'Tesorería & Recaudos Eclesiásticos',
+    subtitulo: 'Control Estricto de Recaudos, Abonos y Cierres en Tiempo Real • Supabase',
+    logoUrl: ''
+  });
+  
+  const [usuariosSistema, setUsuariosSistema] = useState([
+    { id: 'US-0', nombre: 'Administrador General', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solictudClave: false, claveAutorizada: false },
+    { id: 'US-1', nombre: 'Tesorero Principal', usuario: 'tesorero', clave: '1234', rol: 'TESORERO', activo: true, solictudClave: false, claveAutorizada: false },
+    { id: 'US-2', nombre: 'Hna. Marta Gómez', usuario: 'marta', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false },
+    { id: 'US-3', nombre: 'Hno. Carlos Ruiz', usuario: 'carlos', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false }
+  ]);
+
   const [cargandoNube, setCargandoNube] = useState(true);
 
   useEffect(() => {
     supabase
       .from('estado_tesoreria')
-      .select('datos, pin_rec, pin_tes')
+      .select('datos, usuarios, config')
       .eq('id', 1)
       .single()
       .then(({ data }) => {
         if (data) {
           if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
-          if (data.pin_rec) setPinRecaudador(data.pin_rec);
-          if (data.pin_tes) setPinTesorero(data.pin_tes);
+          if (data.usuarios && Array.isArray(data.usuarios)) setUsuariosSistema(data.usuarios);
+          if (data.config) setConfiguracionApp({ ...configuracionApp, ...data.config });
         }
         setCargandoNube(false);
       });
@@ -172,8 +183,12 @@ export default function App() {
             if (payload.new.datos) {
               setMovimientos(Array.isArray(payload.new.datos) ? payload.new.datos : []);
             }
-            if (payload.new.pin_rec) setPinRecaudador(payload.new.pin_rec);
-            if (payload.new.pin_tes) setPinTesorero(payload.new.pin_tes);
+            if (payload.new.usuarios && Array.isArray(payload.new.usuarios)) {
+              setUsuariosSistema(payload.new.usuarios);
+            }
+            if (payload.new.config) {
+              setConfiguracionApp(payload.new.config);
+            }
           }
         }
       )
@@ -184,12 +199,17 @@ export default function App() {
     };
   }, []);
 
-  const guardarEnNube = (nuevosMovs, nuevoPinR, nuevoPinT) => {
+  const guardarEnNube = (nuevosMovs, nuevosUsuarios, nuevaConfig) => {
     if (cargandoNube) return;
     try {
       supabase
         .from('estado_tesoreria')
-        .upsert({ id: 1, datos: nuevosMovs, pin_rec: nuevoPinR, pin_tes: nuevoPinT })
+        .upsert({ 
+          id: 1, 
+          datos: nuevosMovs || movimientos, 
+          usuarios: nuevosUsuarios || usuariosSistema,
+          config: nuevaConfig || configuracionApp
+        })
         .then(({ error }) => {
           if (error) console.error('Error al guardar en Supabase:', error);
         });
@@ -198,14 +218,60 @@ export default function App() {
     }
   };
 
-  const [activeRole, setActiveRole] = useState('RECAUDADOR');
-  const [isRecaudadorAuth, setIsRecaudadorAuth] = useState(false);
-  const [recPinInput, setRecPinInput] = useState('');
-  const [recPinError, setRecPinError] = useState('');
+  const [activeRole, setActiveRole] = useState('RECAUDADOR'); 
+  
+  const [usuarioLogueadoRecaudador, setUsuarioLogueadoRecaudador] = useState(null);
+  const [recUserLoginInput, setRecUserLoginInput] = useState('');
+  const [recPassLoginInput, setRecPassLoginInput] = useState('');
+  const [recLoginError, setRecLoginError] = useState('');
+  const [showCambioClaveRecaudadorModal, setShowCambioClaveRecaudadorModal] = useState(false);
+  const [claveActualRecInput, setClaveActualRecInput] = useState('');
+  const [claveNuevaRecInput, setClaveNuevaRecInput] = useState('');
 
-  const [isTesoreroAuth, setIsTesoreroAuth] = useState(false);
-  const [pinInput, setPinInput] = useState('');
-  const [pinError, setPinError] = useState('');
+  const [usuarioLogueadoTesorero, setUsuarioLogueadoTesorero] = useState(null);
+  const [tesUserLoginInput, setTesUserLoginInput] = useState('');
+  const [tesPassLoginInput, setTesPassLoginInput] = useState('');
+  const [tesLoginError, setTesLoginError] = useState('');
+  const [showCambioClaveTesoreroModal, setShowCambioClaveTesoreroModal] = useState(false);
+  const [claveActualTesInput, setClaveActualTesInput] = useState('');
+  const [claveNuevaTesInput, setClaveNuevaTesInput] = useState('');
+
+  const [usuarioLogueadoAdmin, setUsuarioLogueadoAdmin] = useState(null);
+  const [adminUserLoginInput, setAdminUserLoginInput] = useState('');
+  const [adminPassLoginInput, setAdminPassLoginInput] = useState('');
+  const [adminLoginError, setAdminLoginError] = useState('');
+
+  const [inputConfigTitulo, setInputConfigTitulo] = useState(configuracionApp.titulo);
+  const [inputConfigSub, setInputConfigSub] = useState(configuracionApp.subtitulo);
+  const [inputConfigLogo, setInputConfigLogo] = useState(configuracionApp.logoUrl);
+
+  useEffect(() => {
+    setInputConfigTitulo(configuracionApp.titulo);
+    setInputConfigSub(configuracionApp.subtitulo);
+    setInputConfigLogo(configuracionApp.logoUrl);
+  }, [configuracionApp]);
+
+  const handleGuardarConfiguracionAdmin = (e) => {
+    e.preventDefault();
+    const nuevaConf = {
+      titulo: inputConfigTitulo.trim() || 'Tesorería & Recaudos Eclesiásticos',
+      subtitulo: inputConfigSub.trim() || 'Control Estricto de Recaudos',
+      logoUrl: inputConfigLogo.trim()
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf);
+    showToast('¡Encabezado, título y logo actualizados con éxito!');
+  };
+
+  const [showOlvidoClaveModal, setShowOlvidoClaveModal] = useState(false);
+  const [usuarioOlvidoInput, setUsuarioOlvidoInput] = useState('');
+
+  const [showRestablecerClaveModal, setShowRestablecerClaveModal] = useState(false);
+  const [usuarioRestablecerAlias, setUsuarioRestablecerAlias] = useState('');
+  const [nuevaClaveInput, setNuevaClaveInput] = useState('');
+
+  const [editingUser, setEditingUser] = useState(null);
+  const [eliminarUsuarioModal, setEliminarUsuarioModal] = useState(null);
 
   const [toast, setToast] = useState(null);
   const showToast = (message, type = 'success') => {
@@ -213,17 +279,16 @@ export default function App() {
     setTimeout(() => setToast(null), 4500);
   };
 
-  const [showCambiarPinRecaudador, setShowCambiarPinRecaudador] = useState(false);
-  const [nuevoPinRecInput, setNuevoPinRecInput] = useState('');
-  const [showCambiarPinTesorero, setShowCambiarPinTesorero] = useState(false);
-  const [nuevoPinTesInput, setNuevoPinTesInput] = useState('');
   const [showBorrarTodoModal, setShowBorrarTodoModal] = useState(false);
 
-  // Estados Formulario Recaudador
+  const [nuevoUserNombre, setNuevoUserNombre] = useState('');
+  const [nuevoUserAlias, setNuevoUserAlias] = useState('');
+  const [nuevoUserClave, setNuevoUserClave] = useState('');
+  const [nuevoUserRol, setNuevoUserRol] = useState('RECAUDADOR');
+
   const [modoRecaudo, setModoRecaudo] = useState('UNIDADES');
   const [recFecha, setRecFecha] = useState(() => new Date().toISOString().split('T')[0]);
-  const [recNombre, setRecNombre] = useState('');
-  const [recActividad, setRecActividad] = useState('Tamales / Bollos');
+  const [recActividadLibre, setRecActividadLibre] = useState('');
   const [recDescripcion, setRecDescripcion] = useState('');
   const [recMonto, setRecMonto] = useState('');
   const [recMetodo, setRecMetodo] = useState('Efectivo');
@@ -243,7 +308,12 @@ export default function App() {
   const [motivoSolicitudEdicion, setMotivoSolicitudEdicion] = useState('');
   const [expandedRows, setExpandedRows] = useState({});
 
-  // Estados Tesorería
+  const [solicitudIncobrableModal, setSolicitudIncobrableModal] = useState(null);
+  const [motivoIncobrableInput, setMotivoIncobrableInput] = useState('');
+
+  const [editingTesoreroMov, setEditingTesoreroMov] = useState(null);
+  const [eliminarItemModal, setEliminarItemModal] = useState(null);
+
   const [tesoreroTab, setTesoreroTab] = useState('BANDEJA');
   const [arqueoItem, setArqueoItem] = useState(null);
   const [montoFisicoContado, setMontoFisicoContado] = useState('');
@@ -255,6 +325,7 @@ export default function App() {
   const [egrResponsable, setEgrResponsable] = useState('');
   const [egrMonto, setEgrMonto] = useState('');
   const [egrNota, setEgrNota] = useState('');
+  const [egrSobranteDevuelto, setEgrSobranteDevuelto] = useState('');
 
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
@@ -263,33 +334,239 @@ export default function App() {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleGuardarNuevoPinRec = (e) => {
-    e.preventDefault();
-    if (!nuevoPinRecInput.trim()) return;
-    const nuevo = nuevoPinRecInput.trim();
-    setPinRecaudador(nuevo);
-    setShowCambiarPinRecaudador(false);
-    setNuevoPinRecInput('');
-    guardarEnNube(movimientos, nuevo, pinTesorero);
-    showToast('PIN de Recaudador actualizado.');
-  };
-
-  const handleGuardarNuevoPinTes = (e) => {
-    e.preventDefault();
-    if (!nuevoPinTesInput.trim()) return;
-    const nuevo = nuevoPinTesInput.trim();
-    setPinTesorero(nuevo);
-    setShowCambiarPinTesorero(false);
-    setNuevoPinTesInput('');
-    guardarEnNube(movimientos, pinRecaudador, nuevo);
-    showToast('PIN de Tesorería actualizado.');
-  };
-
   const handleBorrarTodo = () => {
     setMovimientos([]);
     setShowBorrarTodoModal(false);
-    guardarEnNube([], pinRecaudador, pinTesorero);
-    showToast('Se han borrado todos los registros.', 'warning');
+    guardarEnNube([], usuariosSistema, configuracionApp);
+    showToast('Se han borrado todos los registros de la base de datos.', 'warning');
+  };
+
+  const handleEliminarRegistroLibro = () => {
+    if (!eliminarItemModal) return;
+    const actualizados = movimientos.filter((m) => m.id !== eliminarItemModal.id);
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    setEliminarItemModal(null);
+    showToast('Registro eliminado del libro correctamente.', 'warning');
+  };
+
+  const handleCrearUsuarioSistema = (e) => {
+    e.preventDefault();
+    if (!nuevoUserNombre.trim() || !nuevoUserAlias.trim() || !nuevoUserClave.trim()) {
+      showToast('Completa todos los campos para el nuevo usuario.', 'error');
+      return;
+    }
+
+    const aliasLimpio = nuevoUserAlias.trim().toLowerCase();
+    const existe = usuariosSistema.some((u) => u.usuario.toLowerCase() === aliasLimpio);
+    if (existe) {
+      showToast('Ese nombre de usuario ya está registrado. Usa otro.', 'error');
+      return;
+    }
+
+    const nuevoUser = {
+      id: `USR-${Date.now()}`,
+      nombre: nuevoUserNombre.trim(),
+      usuario: aliasLimpio,
+      clave: nuevoUserClave.trim(),
+      rol: nuevoUserRol,
+      activo: true,
+      solicitudClave: false,
+      claveAutorizada: false
+    };
+
+    const actualizados = [...usuariosSistema, nuevoUser];
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setNuevoUserNombre('');
+    setNuevoUserAlias('');
+    setNuevoUserClave('');
+    showToast(`Usuario ${nuevoUser.nombre} creado con éxito.`);
+  };
+
+  const handleToggleEstadoUsuario = (userId) => {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === userId) {
+        return { ...u, activo: !u.activo };
+      }
+      return u;
+    });
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    showToast('Estado del usuario actualizado.');
+  };
+
+  const handleGuardarEdicionUsuario = (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === editingUser.id) {
+        return {
+          ...u,
+          nombre: editingUser.nombre.trim(),
+          usuario: editingUser.usuario.trim().toLowerCase(),
+          clave: editingUser.clave.trim(),
+          rol: editingUser.rol
+        };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setEditingUser(null);
+    showToast('Usuario modificado correctamente.');
+  };
+
+  const handleConfirmarEliminarUsuario = () => {
+    if (!eliminarUsuarioModal) return;
+    const admins = usuariosSistema.filter(u => u.rol === 'ADMINISTRADOR');
+    if (eliminarUsuarioModal.rol === 'ADMINISTRADOR' && admins.length <= 1) {
+      showToast('No puedes eliminar al único administrador del sistema.', 'error');
+      setEliminarUsuarioModal(null);
+      return;
+    }
+
+    const actualizados = usuariosSistema.filter(u => u.id !== eliminarUsuarioModal.id);
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setEliminarUsuarioModal(null);
+    showToast('Usuario eliminado del sistema correctamente.', 'warning');
+  };
+
+  const handleCambiarClavePropiaRecaudador = (e) => {
+    e.preventDefault();
+    if (!usuarioLogueadoRecaudador) return;
+
+    if (claveActualRecInput.trim() !== usuarioLogueadoRecaudador.clave) {
+      showToast('La clave actual es incorrecta.', 'error');
+      return;
+    }
+    if (!claveNuevaRecInput.trim()) {
+      showToast('Ingresa la nueva contraseña.', 'error');
+      return;
+    }
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === usuarioLogueadoRecaudador.id) {
+        return { ...u, clave: claveNuevaRecInput.trim() };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setUsuarioLogueadoRecaudador({ ...usuarioLogueadoRecaudador, clave: claveNuevaRecInput.trim() });
+    setShowCambioClaveRecaudadorModal(false);
+    setClaveActualRecInput('');
+    setClaveNuevaRecInput('');
+    showToast('¡Tu contraseña ha sido actualizada con éxito!');
+  };
+
+  const handleCambiarClavePropiaTesorero = (e) => {
+    e.preventDefault();
+    if (!usuarioLogueadoTesorero) return;
+
+    if (claveActualTesInput.trim() !== usuarioLogueadoTesorero.clave) {
+      showToast('La clave actual es incorrecta.', 'error');
+      return;
+    }
+    if (!claveNuevaTesInput.trim()) {
+      showToast('Ingresa la nueva contraseña.', 'error');
+      return;
+    }
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === usuarioLogueadoTesorero.id) {
+        return { ...u, clave: claveNuevaTesInput.trim() };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setUsuarioLogueadoTesorero({ ...usuarioLogueadoTesorero, clave: claveNuevaTesInput.trim() });
+    setShowCambioClaveTesoreroModal(false);
+    setClaveActualTesInput('');
+    setClaveNuevaTesInput('');
+    showToast('¡Tu contraseña de Tesorero ha sido actualizada con éxito!');
+  };
+
+  const handleEnviarSolicitudClave = (e) => {
+    e.preventDefault();
+    const alias = usuarioOlvidoInput.trim().toLowerCase();
+    const usuarioEncontrado = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
+
+    if (!usuarioEncontrado) {
+      showToast('No se encontró ningún usuario con ese nombre en el sistema.', 'error');
+      return;
+    }
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.usuario.toLowerCase() === alias) {
+        return { ...u, solicitudClave: true };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setShowOlvidoClaveModal(false);
+    setUsuarioOlvidoInput('');
+    showToast('Solicitud enviada al Administrador con éxito.', 'success');
+  };
+
+  const handleAutorizarCambioClave = (userId, autorizar) => {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === userId) {
+        return {
+          ...u,
+          claveAutorizada: autorizar,
+          solicitudClave: false
+        };
+      }
+      return u;
+    });
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    showToast(autorizar ? 'Cambio de clave autorizado para el usuario.' : 'Solicitud rechazada.');
+  };
+
+  const handleConfirmarNuevoCambioClave = (e) => {
+    e.preventDefault();
+    const alias = usuarioRestablecerAlias.trim().toLowerCase();
+    const nuevaClave = nuevaClaveInput.trim();
+
+    const usr = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
+    if (!usr) {
+      showToast('Usuario no encontrado.', 'error');
+      return;
+    }
+
+    if (!usr.claveAutorizada) {
+      showToast('Tu solicitud aún no ha sido autorizada por el Administrador.', 'warning');
+      return;
+    }
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.usuario.toLowerCase() === alias) {
+        return {
+          ...u,
+          clave: nuevaClave,
+          claveAutorizada: false,
+          solicitudClave: false
+        };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setShowRestablecerClaveModal(false);
+    setUsuarioRestablecerAlias('');
+    setNuevaClaveInput('');
+    showToast('¡Contraseña actualizada con éxito! Ya puedes iniciar sesión.');
   };
 
   const resumenFormUnidades = useMemo(() => {
@@ -299,12 +576,21 @@ export default function App() {
 
     let unidadesPagadas = 0;
     let unidadesFiadas = 0;
+    let unidadesIncobrables = 0;
     let plataRecaudada = 0;
     let plataFiada = 0;
+    let plataIncobrable = 0;
 
     recCompradores.forEach((c) => {
       const q = Number(c.cantidad) || 0;
       const totalComp = q * precio;
+
+      if (c.estadoPago === 'INCOBRABLE') {
+        unidadesIncobrables += q;
+        plataIncobrable += totalComp;
+        return;
+      }
+
       const abonado =
         c.estadoPago === 'PAGADO'
           ? totalComp
@@ -317,7 +603,7 @@ export default function App() {
       else unidadesFiadas += q;
     });
 
-    const unidadesAsignadas = unidadesPagadas + unidadesFiadas;
+    const unidadesAsignadas = unidadesPagadas + unidadesFiadas + unidadesIncobrables;
     const unidadesSinVender = Math.max(0, producidas - unidadesAsignadas);
     const plataSinVender = unidadesSinVender * precio;
     const totalUnidadesFaltantes = unidadesFiadas + unidadesSinVender;
@@ -328,23 +614,20 @@ export default function App() {
       precio,
       totalEsperado,
       unidadesPagadas,
-      plataPagada,
       unidadesFiadas,
-      plataFiada,
+      unidadesIncobrables,
+      unidadesAsignadas,
       unidadesSinVender,
+      plataRecaudada,
+      plataFiada,
+      plataIncobrable,
       plataSinVender,
       totalUnidadesFaltantes,
       totalPlataFaltante,
-      agotado: unidadesSinVender === 0,
     };
   }, [recCantidadProducida, recPrecioUnitario, recCompradores]);
 
   const handleAgregarCompradorForm = () => {
-    if (resumenFormUnidades.agotado) {
-      showToast('¡Inventario agotado! No quedan unidades disponibles para vender o fiar.', 'error');
-      return;
-    }
-
     const nombre = nuevoCompNombre.trim();
     const cant = Number(nuevoCompCantidad) || 0;
     const producidas = Number(recCantidadProducida) || 0;
@@ -359,8 +642,8 @@ export default function App() {
       showToast('Cantidad inválida.', 'error');
       return;
     }
-    if (resumenFormUnidades.unidadesAsignadas + cant > producidas) {
-      showToast(`Solo quedan ${resumenFormUnidades.unidadesSinVender} unidades disponibles.`, 'error');
+    if (producidas > 0 && resumenFormUnidades.unidadesAsignadas + cant > producidas) {
+      showToast(`Supera las unidades producidas (${resumenFormUnidades.unidadesSinVender} restantes).`, 'error');
       return;
     }
 
@@ -374,6 +657,8 @@ export default function App() {
       } else {
         montoAbonadoInicial = abonoNum;
       }
+    } else if (nuevoCompEstado === 'INCOBRABLE') {
+      montoAbonadoInicial = 0;
     }
 
     const nuevo = {
@@ -396,12 +681,101 @@ export default function App() {
       prev.map((c) => {
         if (c.id !== compId) return c;
         const totalComp = (Number(c.cantidad) || 0) * precio;
-        const nuevoEstado = c.estadoPago === 'PAGADO' ? 'FIADO' : 'PAGADO';
+        let nuevoEstado = 'FIADO';
+        if (c.estadoPago === 'FIADO') nuevoEstado = 'PAGADO';
+        else if (c.estadoPago === 'PAGADO') nuevoEstado = 'INCOBRABLE';
+        else if (c.estadoPago === 'INCOBRABLE') nuevoEstado = 'FIADO';
+
         return {
           ...c,
           estadoPago: nuevoEstado,
-          montoAbonado: nuevoEstado === 'PAGADO' ? totalComp : 0,
+          montoAbonado: nuevoEstado === 'PAGADO' ? totalComp : nuevoEstado === 'INCOBRABLE' ? 0 : c.montoAbonado,
         };
+      })
+    );
+  };
+
+  const handleEnviarSolicitudIncobrable = (e) => {
+    e.preventDefault();
+    if (!solicitudIncobrableModal) return;
+    const motivo = motivoIncobrableInput.trim();
+    if (!motivo) {
+      showToast('Escribe el motivo por el cual la deuda es incobrable.', 'error');
+      return;
+    }
+
+    const { movimientoId, compradorId } = solicitudIncobrableModal;
+    let nombreDeudorLocal = '';
+
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
+        nombreDeudorLocal = c.nombre;
+        return {
+          ...c,
+          solicitudIncobrable: true,
+          motivoIncobrable: motivo
+        };
+      });
+
+      return {
+        ...m,
+        compradores: comps,
+        notaTesorero: `${m.notaTesorero || ''} [Solicitud de baja/incobrable enviada para ${nombreDeudorLocal || 'deudor'}]`
+      };
+    });
+
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    setSolicitudIncobrableModal(null);
+    setMotivoIncobrableInput('');
+    showToast('Solicitud de "Incobrable" enviada a Tesorería con éxito.');
+  };
+
+  const handleTesoreroResolverIncobrable = (movimientoId, compradorId, aprobar) => {
+    const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
+
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+      let nombreComp = '';
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
+        nombreComp = c.nombre;
+        return {
+          ...c,
+          estadoPago: aprobar ? 'INCOBRABLE' : c.estadoPago,
+          solicitudIncobrable: false,
+          motivoIncobrable: ''
+        };
+      });
+
+      return {
+        ...m,
+        compradores: comps,
+        notaTesorero: `${m.notaTesorero || '—'} [${aprobar ? `Deuda de ${nombreComp} dada de baja como INCOBRABLE por ${nombreTesoreroActual}` : `Solicitud de incobrable rechazada para ${nombreComp}`}]`
+      };
+    });
+
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    showToast(aprobar ? 'Deuda aprobada como Incobrable / Condonada.' : 'Solicitud rechazada.');
+  };
+
+  const handleModificarCompradorExistenteEnForm = (compId, campo, valor) => {
+    setRecCompradores((prev) =>
+      prev.map((c) => {
+        if (c.id !== compId) return c;
+        const actualizado = { ...c, [campo]: valor };
+        if (campo === 'cantidad') {
+          const cantNum = Number(valor) || 0;
+          const precio = Number(recPrecioUnitario) || 0;
+          const totalC = cantNum * precio;
+          if (actualizado.estadoPago === 'PAGADO') {
+            actualizado.montoAbonado = totalC;
+          }
+        }
+        return actualizado;
       })
     );
   };
@@ -412,8 +786,11 @@ export default function App() {
 
   const handleRegistrarRecaudo = (e) => {
     e.preventDefault();
-    if (!recNombre.trim()) {
-      showToast('Ingresa el nombre del responsable.', 'error');
+    const nombreResponsable = usuarioLogueadoRecaudador ? usuarioLogueadoRecaudador.nombre : 'Recaudador';
+    
+    const actividadFinal = recActividadLibre.trim();
+    if (!actividadFinal) {
+      showToast('Escribe el nombre de la actividad.', 'error');
       return;
     }
 
@@ -432,9 +809,9 @@ export default function App() {
                 ...m,
                 fecha: recFecha,
                 modoRegistro: 'UNIDADES',
-                actividad: recActividad,
+                actividad: actividadFinal,
                 descripcion: descFinal,
-                responsable: recNombre.trim(),
+                responsable: nombreResponsable,
                 metodoPago: recMetodo,
                 cantidadProducida: producidas,
                 precioUnitario: precio,
@@ -447,9 +824,10 @@ export default function App() {
             : m
         );
         setMovimientos(actualizados);
-        guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+        guardarEnNube(actualizados, usuariosSistema, configuracionApp);
         setEditingRecaudoId(null);
         setRecDescripcion('');
+        setRecActividadLibre('');
         setRecCompradores([]);
         showToast('Recaudo por unidades modificado con éxito.');
         return;
@@ -461,9 +839,9 @@ export default function App() {
         fecha: recFecha,
         tipo: 'INGRESO',
         modoRegistro: 'UNIDADES',
-        actividad: recActividad,
+        actividad: actividadFinal,
         descripcion: descFinal,
-        responsable: recNombre.trim(),
+        responsable: nombreResponsable,
         metodoPago: recMetodo,
         cantidadProducida: producidas,
         precioUnitario: precio,
@@ -477,9 +855,10 @@ export default function App() {
 
       const actualizados = [nuevoReg, ...movimientos];
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
       setRecDescripcion('');
+      setRecActividadLibre('');
       setRecCompradores([]);
       showToast('Recaudo registrado y enviado a Tesorería.');
       return;
@@ -498,9 +877,9 @@ export default function App() {
               ...m,
               fecha: recFecha,
               modoRegistro: 'GENERAL',
-              actividad: recActividad,
+              actividad: actividadFinal,
               descripcion: recDescripcion.trim(),
-              responsable: recNombre.trim(),
+              responsable: nombreResponsable,
               metodoPago: recMetodo,
               montoReportado: valor,
               edicionAutorizada: false,
@@ -510,9 +889,10 @@ export default function App() {
           : m
       );
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setEditingRecaudoId(null);
       setRecDescripcion('');
+      setRecActividadLibre('');
       setRecMonto('');
       showToast('Recaudo general modificado.');
       return;
@@ -523,9 +903,9 @@ export default function App() {
       fecha: recFecha,
       tipo: 'INGRESO',
       modoRegistro: 'GENERAL',
-      actividad: recActividad,
+      actividad: actividadFinal,
       descripcion: recDescripcion.trim(),
-      responsable: recNombre.trim(),
+      responsable: nombreResponsable,
       metodoPago: recMetodo,
       montoReportado: valor,
       montoRecibido: 0,
@@ -536,25 +916,21 @@ export default function App() {
 
     const actualizados = [nuevoReg, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setRecDescripcion('');
+    setRecActividadLibre('');
     setRecMonto('');
     showToast('Recaudo general enviado a Tesorería.');
   };
 
   const handleIniciarEdicion = (item) => {
-    if (item.estado === 'VERIFICADO') {
-      showToast('Ya fue verificado por tesorería, no se puede editar.', 'warning');
-      return;
-    }
     if (!item.edicionAutorizada) {
       showToast('Necesitas solicitar autorización de edición a Tesorería.', 'warning');
       return;
     }
     setEditingRecaudoId(item.id);
     setRecFecha(item.fecha);
-    setRecActividad(item.actividad);
-    setRecNombre(item.responsable);
+    setRecActividadLibre(item.actividad);
     setRecDescripcion(item.descripcion);
     setRecMetodo(item.metodoPago || 'Efectivo');
     if (item.modoRegistro === 'UNIDADES') {
@@ -567,7 +943,7 @@ export default function App() {
       setRecMonto(String(item.montoReportado));
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
-    showToast('Modo edición activado. Puedes modificar compradores, deudas y abonos.');
+    showToast('Modo edición activado. Puedes corregir cantidades y compradores.');
   };
 
   const handleEnviarSolicitudEdicion = (e) => {
@@ -580,7 +956,7 @@ export default function App() {
       m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Solicitud de edición enviada a Tesorería.');
     setSolicitudEdicionModal(null);
     setMotivoSolicitudEdicion('');
@@ -600,7 +976,7 @@ export default function App() {
         : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(aprobar ? 'Edición autorizada.' : 'Solicitud rechazada.');
   };
 
@@ -630,6 +1006,7 @@ export default function App() {
     const actualizados = movimientos.map((m) => {
       if (m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
+      
       const comps = (m.compradores || []).map((c) => {
         if (c.id !== abonoModal.comprador.id) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
@@ -646,153 +1023,220 @@ export default function App() {
         };
       });
 
-      const nuevoMontoReportado = comps.reduce((acc, c) => {
-        const totalC = (Number(c.cantidad) || 0) * precio;
-        const abonoC =
-          c.estadoPago === 'PAGADO'
-            ? totalC
-            : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
-        return acc + abonoC;
-      }, 0);
+      const abonoPrevioAcumulado = Number(m.ultimoAbonoReportado) || 0;
+      const nuevoAbonoAcumulado = abonoPrevioAcumulado + abonoNuevo;
 
-      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
+      return { 
+        ...m, 
+        compradores: comps, 
+        ultimoAbonoReportado: nuevoAbonoAcumulado,
+        notaTesorero: `${m.notaTesorero || ''} [Nuevo abono reportado: +${formatCOP(abonoNuevo)}]`,
+        estado: 'PENDIENTE'
+      };
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado con éxito.`);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    showToast(`Abono de ${formatCOP(abonoNuevo)} registrado y sumado al pendiente de Tesorería.`);
     setAbonoModal(null);
   };
 
   const handleSaldarTodoComprador = (movimientoId, compradorId) => {
+    let valorAbonadoExtra = 0;
     const actualizados = movimientos.map((m) => {
       if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
       const comps = (m.compradores || []).map((c) => {
         if (c.id !== compradorId) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
+        const abonadoPrevio = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
+        valorAbonadoExtra = Math.max(0, totalC - abonadoPrevio);
         return { ...c, estadoPago: 'PAGADO', montoAbonado: totalC };
       });
-      const nuevoMontoReportado = comps.reduce((acc, c) => {
-        const totalC = (Number(c.cantidad) || 0) * precio;
-        return acc + totalC;
-      }, 0);
-      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
+
+      const abonoPrevioAcumulado = Number(m.ultimoAbonoReportado) || 0;
+      const nuevoAbonoAcumulado = abonoPrevioAcumulado + valorAbonadoExtra;
+
+      return { 
+        ...m, 
+        compradores: comps, 
+        ultimoAbonoReportado: nuevoAbonoAcumulado,
+        notaTesorero: `${m.notaTesorero || ''} [Deuda saldada por completo: +${formatCOP(valorAbonadoExtra)}]`,
+        estado: 'PENDIENTE'
+      };
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast('Deuda saldada por completo.');
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    showToast('Deuda saldada por completo. Sumado al total pendiente por recibir.');
   };
 
-  const handleTogglePagoCompradorExistente = (movimientoId, compradorId) => {
-    const actualizados = movimientos.map((m) => {
-      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
-      const precio = Number(m.precioUnitario) || 0;
-      const comps = (m.compradores || []).map((c) => {
-        if (c.id !== compradorId) return c;
-        const nuevoEstado = c.estadoPago === 'PAGADO' ? 'FIADO' : 'PAGADO';
-        return {
-          ...c,
-          estadoPago: nuevoEstado,
-          montoAbonado: nuevoEstado === 'PAGADO' ? (Number(c.cantidad) || 0) * precio : 0,
-        };
-      });
-      const nuevoMontoReportado = comps.reduce((acc, c) => {
-        const totalC = (Number(c.cantidad) || 0) * precio;
-        const abonoC =
-          c.estadoPago === 'PAGADO'
-            ? totalC
-            : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
-        return acc + abonoC;
-      }, 0);
-      return { ...m, compradores: comps, montoReportado: nuevoMontoReportado };
+  const kpisRecaudadorLogueado = useMemo(() => {
+    if (!usuarioLogueadoRecaudador) return { totalReportado: 0, totalEnMano: 0, totalFiado: 0 };
+    const nombreRec = usuarioLogueadoRecaudador.nombre;
+
+    let totalReportado = 0;
+    let totalEnMano = 0;
+    let totalFiado = 0;
+
+    movimientos.forEach((m) => {
+      if (m.tipo === 'INGRESO' && m.responsable === nombreRec) {
+        const base = Number(m.montoReportado) || 0;
+        const abonosExtras = Number(m.ultimoAbonoReportado) || 0;
+        totalReportado += base + abonosExtras;
+
+        if (m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores)) {
+          const inv = calcularResumenInventario(m);
+          totalEnMano += inv.plataPagada;
+          totalFiado += inv.plataFiada;
+        } else {
+          totalEnMano += base;
+        }
+      }
     });
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
-    showToast('Estado de pago actualizado.');
-  };
+
+    return { totalReportado, totalEnMano, totalFiado };
+  }, [movimientos, usuarioLogueadoRecaudador]);
 
   const kpis = useMemo(() => {
     let totalEntradasVerificadas = 0;
-    let totalSalidas = 0;
+    let totalSalidasNetas = 0;
     let pendientePorRecoger = 0;
     let descuadreAcumulado = 0;
     let cantidadPendientes = 0;
     let cantidadDescuadres = 0;
     let cantidadSolicitudesEdicion = 0;
+    let cantidadSolicitudesIncobrable = 0;
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
 
     movimientos.forEach((m) => {
       if (m.tipo === 'INGRESO') {
-        if (m.estado === 'VERIFICADO') {
-          totalEntradasVerificadas += Number(m.montoRecibido) || 0;
-        } else if (m.estado === 'PENDIENTE') {
-          pendientePorRecoger += Number(m.montoReportado) || 0;
+        totalEntradasVerificadas += Number(m.montoRecibido) || 0;
+
+        if (m.estado === 'PENDIENTE') {
+          const pendienteItem = Number(m.ultimoAbonoReportado) > 0 ? Number(m.ultimoAbonoReportado) : Number(m.montoReportado) || 0;
+          pendientePorRecoger += pendienteItem;
           cantidadPendientes += 1;
         } else if (m.estado === 'DESCUADRE') {
-          totalEntradasVerificadas += Number(m.montoRecibido) || 0;
           const diff = Math.abs((Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0));
           descuadreAcumulado += diff;
           cantidadDescuadres += 1;
         }
         if (m.solicitudEdicion) cantidadSolicitudesEdicion += 1;
 
-        if (m.modoRegistro === 'UNIDADES') {
+        if (m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores)) {
+          m.compradores.forEach((c) => {
+            if (c.solicitudIncobrable) cantidadSolicitudesIncobrable += 1;
+          });
           const inv = calcularResumenInventario(m);
           totalPlataFiadaCalle += inv.plataFiada;
           totalPlataSinVenderCalle += inv.plataSinVender;
         }
       } else if (m.tipo === 'EGRESO') {
-        totalSalidas += Number(m.montoSalida) || 0;
+        const salidaReal = (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0);
+        totalSalidasNetas += Math.max(0, salidaReal);
       }
     });
 
-    const saldoRealEnCaja = totalEntradasVerificadas - totalSalidas;
+    const saldoRealEnCaja = totalEntradasVerificadas - totalSalidasNetas;
     const totalCarteraYSinVender = totalPlataFiadaCalle + totalPlataSinVenderCalle;
 
     return {
       totalEntradasVerificadas,
-      totalSalidas,
+      totalSalidas: totalSalidasNetas,
       saldoRealEnCaja,
       pendientePorRecoger,
       descuadreAcumulado,
       cantidadPendientes,
       cantidadDescuadres,
       cantidadSolicitudesEdicion,
+      cantidadSolicitudesIncobrable,
       totalCarteraYSinVender,
     };
   }, [movimientos]);
 
   const handleRecaudadorLogin = (e) => {
     e.preventDefault();
-    if (recPinInput.trim() === pinRecaudador) {
-      setIsRecaudadorAuth(true);
-      setRecPinError('');
-      setRecPinInput('');
-      showToast('Acceso de recaudador concedido.');
-    } else {
-      setRecPinError('Contraseña incorrecta.');
+    const uInput = recUserLoginInput.trim().toLowerCase();
+    const pInput = recPassLoginInput.trim();
+
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'RECAUDADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    );
+
+    if (!encontrado) {
+      setRecLoginError('Usuario o clave incorrectos.');
+      return;
     }
+
+    if (!encontrado.activo) {
+      setRecLoginError('Este usuario se encuentra INACTIVO. Contacta al administrador.');
+      return;
+    }
+
+    setUsuarioLogueadoRecaudador(encontrado);
+    setRecLoginError('');
+    setRecUserLoginInput('');
+    setRecPassLoginInput('');
+    showToast(`Bienvenido(a), ${encontrado.nombre}.`);
   };
 
   const handleTesoreroLogin = (e) => {
     e.preventDefault();
-    if (pinInput.trim() === pinTesorero) {
-      setIsTesoreroAuth(true);
-      setPinError('');
-      setPinInput('');
-      showToast('Acceso de tesorería concedido.');
-    } else {
-      setPinError('Contraseña incorrecta.');
+    const uInput = tesUserLoginInput.trim().toLowerCase();
+    const pInput = tesPassLoginInput.trim();
+
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'TESORERO' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    );
+
+    if (!encontrado) {
+      setTesLoginError('Usuario o clave incorrectos.');
+      return;
     }
+
+    if (!encontrado.activo) {
+      setTesLoginError('Este usuario Tesorero se encuentra INACTIVO.');
+      return;
+    }
+
+    setUsuarioLogueadoTesorero(encontrado);
+    setTesLoginError('');
+    setTesUserLoginInput('');
+    setTesPassLoginInput('');
+    showToast(`Sesión de Tesorería iniciada: ${encontrado.nombre}.`);
+  };
+
+  const handleAdminLogin = (e) => {
+    e.preventDefault();
+    const uInput = adminUserLoginInput.trim().toLowerCase();
+    const pInput = adminPassLoginInput.trim();
+
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'ADMINISTRADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    );
+
+    if (!encontrado) {
+      setAdminLoginError('Usuario o clave de administrador incorrectos.');
+      return;
+    }
+
+    if (!encontrado.activo) {
+      setAdminLoginError('Este usuario Administrador se encuentra INACTIVO.');
+      return;
+    }
+
+    setUsuarioLogueadoAdmin(encontrado);
+    setAdminLoginError('');
+    setAdminUserLoginInput('');
+    setAdminPassLoginInput('');
+    showToast(`Sesión de Administrador iniciada: ${encontrado.nombre}.`);
   };
 
   const openArqueoModal = (item) => {
     setArqueoItem(item);
-    setMontoFisicoContado(
-      item.estado === 'DESCUADRE' ? String(item.montoRecibido) : String(item.montoReportado)
-    );
+    const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
+    setMontoFisicoContado(String(montoPendienteARecibir));
     setNotaArqueo(item.notaTesorero || '');
   };
 
@@ -800,29 +1244,61 @@ export default function App() {
     e.preventDefault();
     if (!arqueoItem) return;
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
-    const reportado = Number(arqueoItem.montoReportado);
-    const esExacto = contado === reportado;
+    const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 ? Number(arqueoItem.ultimoAbonoReportado) : Number(arqueoItem.montoReportado);
+    const esExacto = contado === reportadoEsperado;
+
+    const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
     const actualizados = movimientos.map((m) => {
       if (m.id === arqueoItem.id) {
+        const recibidoAnterior = Number(m.montoRecibido) || 0;
+        const totalRecibidoReal = recibidoAnterior + contado;
+
         return {
           ...m,
-          montoRecibido: contado,
+          montoRecibido: totalRecibidoReal,
           estado: esExacto ? 'VERIFICADO' : 'DESCUADRE',
+          edicionAutorizada: false,
+          solicitudEdicion: false,
+          ultimoAbonoReportado: 0,
           notaTesorero:
             notaArqueo.trim() ||
             (esExacto
-              ? 'Dinero contado exacto en sobre sellado.'
-              : `Se reportaron ${formatCOP(reportado)}, pero al contar faltaron ${formatCOP(reportado - contado)}.`),
+              ? `Recibido por ${nombreTesoreroActual} (${formatCOP(contado)}).`
+              : `Recibido por ${nombreTesoreroActual}. Faltaron ${formatCOP(reportadoEsperado - contado)}.`),
         };
       }
       return m;
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setArqueoItem(null);
-    showToast(esExacto ? 'Recaudo verificado y recibido en caja.' : 'Arqueo guardado con descuadre.');
+    showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre.');
+  };
+
+  const handleCerrarRecaudoSinMasNovedad = (item) => {
+    const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
+    const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
+
+    const actualizados = movimientos.map((m) => {
+      if (m.id === item.id) {
+        const recibidoAnterior = Number(m.montoRecibido) || 0;
+        return {
+          ...m,
+          estado: 'VERIFICADO',
+          montoRecibido: recibidoAnterior + abonoPendiente,
+          edicionAutorizada: false,
+          solicitudEdicion: false,
+          ultimoAbonoReportado: 0,
+          notaTesorero: `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}Cerrado por ${nombreTesoreroActual} (${formatCOP(abonoPendiente)}).`
+        };
+      }
+      return m;
+    });
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+    showToast('Recaudo cerrado y verificado definitivamente en caja.');
   };
 
   const handleAprobarAjusteDescuadre = (item) => {
@@ -832,23 +1308,33 @@ export default function App() {
           ...m,
           montoReportado: m.montoRecibido,
           estado: 'VERIFICADO',
-          notaTesorero: `${m.notaTesorero} [Ajuste aprobado por Tesorería]`,
+          edicionAutorizada: false,
+          notaTesorero: `${m.notaTesorero} [Ajuste aprobado por Tesorería y cerrado]`,
         };
       }
       return m;
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Ajuste de descuadre aprobado y cerrado.');
   };
 
   const handleRegistrarEgreso = (e) => {
     e.preventDefault();
-    const valor = Number(egrMonto.toString().replace(/\D/g, ''));
-    if (!egrConcepto.trim() || !egrResponsable.trim() || valor <= 0) {
+    const valorSalida = Number(egrMonto.toString().replace(/\D/g, ''));
+    const sobrante = Number(egrSobranteDevuelto.toString().replace(/\D/g, '')) || 0;
+
+    if (!egrConcepto.trim() || !egrResponsable.trim() || valorSalida <= 0) {
       showToast('Completa todos los campos del egreso.', 'error');
       return;
     }
+
+    if (sobrante >= valorSalida) {
+      showToast('El sobrante devuelto no puede ser mayor o igual al valor entregado.', 'error');
+      return;
+    }
+
+    const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
     const nuevoEgreso = {
       id: `EGR-${Math.floor(100 + Math.random() * 900)}`,
@@ -856,32 +1342,34 @@ export default function App() {
       tipo: 'EGRESO',
       actividad: egrCategoria,
       descripcion: egrConcepto.trim(),
-      responsable: egrResponsable.trim(),
+      responsable: `${egrResponsable.trim()} (Autoriza: ${nombreTesoreroActual})`,
       metodoPago: 'Efectivo Caja',
       montoReportado: 0,
       montoRecibido: 0,
-      montoSalida: valor,
+      montoSalida: valorSalida,
+      montoSobranteDevuelto: sobrante,
       estado: 'EGRESO_REGISTRADO',
-      notaTesorero: egrNota.trim(),
+      notaTesorero: egrNota.trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
     };
 
     const actualizados = [nuevoEgreso, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, pinRecaudador, pinTesorero);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
-    showToast(`Salida registrada por ${formatCOP(valor)}.`);
+    setEgrSobranteDevuelto('');
+    showToast(`Salida registrada por ${formatCOP(valorSalida)}${sobrante > 0 ? ` (Sobrante devuelto de ${formatCOP(sobrante)} sumado a caja)` : ''}.`);
     setTesoreroTab('LIBRO');
   };
 
   const handleExportCSV = () => {
     const headers = [
-      'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida', 'Estado', 'Nota'
+      'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Nota'
     ];
     const rows = movimientos.map((m) => [
       m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
-      m.montoReportado, m.montoRecibido, m.montoSalida, m.estado, `"${m.notaTesorero || ''}"`
+      m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, `"${m.notaTesorero || ''}"`
     ]);
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -929,7 +1417,7 @@ export default function App() {
         return (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
             <Clock className="w-3.5 h-3.5 text-amber-600" />
-            Pendiente por recoger
+            Pendiente por recibir
           </span>
         );
       case 'DESCUADRE':
@@ -977,50 +1465,75 @@ export default function App() {
         </div>
       )}
 
-      {/* HEADER PRINCIPAL */}
       <header className="bg-indigo-950 text-white shadow-md sticky top-0 z-30">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-4">
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
             <div className="flex items-center gap-3">
-              <div className="bg-indigo-800 p-2.5 rounded-xl border border-indigo-700 shadow-inner">
-                <Wallet className="w-7 h-7 text-emerald-400" />
-              </div>
+              {configuracionApp.logoUrl ? (
+                <img
+                  src={configuracionApp.logoUrl}
+                  alt="Logo"
+                  className="w-12 h-12 rounded-xl object-cover border border-indigo-700 shadow-inner bg-white"
+                  onError={(e) => { e.target.style.display = 'none'; }}
+                />
+              ) : (
+                <div className="bg-indigo-800 p-2.5 rounded-xl border border-indigo-700 shadow-inner">
+                  <Wallet className="w-7 h-7 text-emerald-400" />
+                </div>
+              )}
               <div>
                 <h1 className="text-xl font-bold tracking-tight text-white">
-                  Tesorería & Recaudos Eclesiásticos
+                  {configuracionApp.titulo}
                 </h1>
                 <p className="text-xs text-indigo-200">
-                  Sincronizado en tiempo real por Supabase • Multidispositivo
+                  {configuracionApp.subtitulo}
                 </p>
               </div>
             </div>
 
-            <div className="flex items-center gap-2 bg-indigo-900/90 p-1.5 rounded-xl border border-indigo-800">
+            <div className="flex flex-wrap items-center gap-2 bg-indigo-900/90 p-1.5 rounded-xl border border-indigo-800">
               <button
                 onClick={() => setActiveRole('RECAUDADOR')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
                   activeRole === 'RECAUDADOR'
                     ? 'bg-white text-indigo-950 shadow-sm'
                     : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
                 }`}
               >
-                {isRecaudadorAuth ? <Unlock className="w-4 h-4 text-emerald-600" /> : <Lock className="w-4 h-4" />}
-                <span>Módulo Recaudadores</span>
+                {usuarioLogueadoRecaudador ? <Unlock className="w-3.5 h-3.5 text-emerald-600" /> : <Lock className="w-3.5 h-3.5" />}
+                <span>Recaudador</span>
               </button>
 
               <button
                 onClick={() => setActiveRole('TESORERO')}
-                className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-semibold transition-all ${
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
                   activeRole === 'TESORERO'
                     ? 'bg-emerald-500 text-indigo-950 shadow-sm'
                     : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
                 }`}
               >
-                {isTesoreroAuth ? <Unlock className="w-4 h-4 text-indigo-950" /> : <Lock className="w-4 h-4" />}
-                <span>Tesorería Central</span>
-                {kpis.cantidadPendientes > 0 && (
-                  <span className="ml-1 px-2 py-0.5 text-xs font-bold rounded-full bg-amber-400 text-indigo-950">
-                    {kpis.cantidadPendientes}
+                {usuarioLogueadoTesorero ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <Lock className="w-3.5 h-3.5" />}
+                <span>Tesorería</span>
+                {(kpis.cantidadPendientes + kpis.cantidadSolicitudesIncobrable) > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-indigo-950">
+                    {kpis.cantidadPendientes + kpis.cantidadSolicitudesIncobrable}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveRole('ADMINISTRADOR')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeRole === 'ADMINISTRADOR'
+                    ? 'bg-amber-400 text-indigo-950 shadow-sm'
+                    : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
+                }`}
+              >
+                {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
+                <span>Administrador</span>
+                {usuariosSistema.some(u => u.solicitudClave) && (
+                  <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-600 text-white animate-pulse">
+                    !
                   </span>
                 )}
               </button>
@@ -1030,37 +1543,68 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
-        {/* ================= MODULO RECAUDADOR ================= */}
         {activeRole === 'RECAUDADOR' && (
           <>
-            {!isRecaudadorAuth ? (
+            {!usuarioLogueadoRecaudador ? (
               <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
                 <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <HandCoins className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Acceso Recaudadores</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de seguridad asignado.</p>
+                <h2 className="text-xl font-bold text-slate-900">Ingreso Recaudadores</h2>
+                <p className="text-sm text-slate-500 mt-1">Ingresa tu usuario y clave asignados.</p>
 
-                <form onSubmit={handleRecaudadorLogin} className="mt-6 space-y-4">
+                <form onSubmit={handleRecaudadorLogin} className="mt-6 space-y-4 text-left">
                   <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario</label>
                     <input
-                      type="password"
-                      maxLength={12}
-                      placeholder="••••"
-                      value={recPinInput}
-                      onChange={(e) => setRecPinInput(e.target.value)}
-                      className="w-full text-center text-2xl tracking-[0.5em] font-bold py-3 px-4 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-600 outline-none"
+                      type="text"
+                      required
+                      placeholder="Ej. marta"
+                      value={recUserLoginInput}
+                      onChange={(e) => setRecUserLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-600 font-medium"
                       autoFocus
                     />
-                    {recPinError && (
-                      <p className="text-xs text-rose-600 font-semibold mt-2">{recPinError}</p>
-                    )}
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••"
+                      value={recPassLoginInput}
+                      onChange={(e) => setRecPassLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-600 font-medium"
+                    />
+                  </div>
+                  {recLoginError && (
+                    <p className="text-xs text-rose-600 font-semibold">{recLoginError}</p>
+                  )}
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowOlvidoClaveModal(true)}
+                      className="text-indigo-700 hover:underline font-bold flex items-center gap-1"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      ¿Se te olvidó tu clave?
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRestablecerClaveModal(true)}
+                      className="text-emerald-700 hover:underline font-bold flex items-center gap-1"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      Tengo autorización
+                    </button>
+                  </div>
+
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
+                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
                   >
-                    Ingresar al Módulo
+                    Entrar al Módulo
                   </button>
                 </form>
               </div>
@@ -1069,18 +1613,20 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Recaudador Autorizado (Sincronizado)</span>
+                    <span className="text-sm font-bold text-slate-800">
+                      Recaudador Conectado: <span className="text-indigo-900 underline">{usuarioLogueadoRecaudador.nombre}</span>
+                    </span>
                   </div>
-                  <div className="flex items-center gap-2 flex-wrap">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={() => setShowCambiarPinRecaudador(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
+                      onClick={() => setShowCambioClaveRecaudadorModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN
+                      Cambiar mi Clave
                     </button>
                     <button
-                      onClick={() => setIsRecaudadorAuth(false)}
+                      onClick={() => setUsuarioLogueadoRecaudador(null)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
@@ -1089,8 +1635,25 @@ export default function App() {
                   </div>
                 </div>
 
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                  <div className="bg-indigo-950 text-white p-4 rounded-2xl shadow-sm border border-indigo-900">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200 block">Total Reportado por Ti</span>
+                    <span className="text-xl font-extrabold text-emerald-400 mt-1 block">{formatCOP(kpisRecaudadorLogueado.totalReportado)}</span>
+                    <span className="text-[10px] text-indigo-200 mt-0.5 block">Incluye efectivo inicial y abonos</span>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Efectivo / Pagos en Mano</span>
+                    <span className="text-xl font-extrabold text-slate-900 mt-1 block">{formatCOP(kpisRecaudadorLogueado.totalEnMano)}</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">Recibidos al contado</span>
+                  </div>
+                  <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Cartera Fiada Pendiente</span>
+                    <span className="text-xl font-extrabold text-rose-600 mt-1 block">{formatCOP(kpisRecaudadorLogueado.totalFiado)}</span>
+                    <span className="text-[10px] text-slate-400 mt-0.5 block">Por cobrar en calle</span>
+                  </div>
+                </div>
+
                 <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
-                  {/* FORMULARIO */}
                   <div className="lg:col-span-5">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 overflow-hidden sticky top-24">
                       <div className={`px-6 py-4 text-white ${editingRecaudoId ? 'bg-amber-700' : 'bg-indigo-950'}`}>
@@ -1098,7 +1661,7 @@ export default function App() {
                           <div className="flex items-center gap-2">
                             {editingRecaudoId ? <Edit3 className="w-5 h-5 text-amber-300" /> : <PlusCircle className="w-5 h-5 text-emerald-400" />}
                             <h2 className="font-bold text-base">
-                              {editingRecaudoId ? 'Modificar Recaudo' : 'Registrar Recaudo de Actividad'}
+                              {editingRecaudoId ? 'Modificar Recaudo y Compradores' : 'Registrar Recaudo de Actividad'}
                             </h2>
                           </div>
                           {editingRecaudoId && (
@@ -1106,6 +1669,7 @@ export default function App() {
                               onClick={() => {
                                 setEditingRecaudoId(null);
                                 setRecDescripcion('');
+                                setRecActividadLibre('');
                                 setRecCompradores([]);
                               }}
                               className="px-2.5 py-1 rounded bg-white/20 text-xs font-bold hover:bg-white/30"
@@ -1115,7 +1679,7 @@ export default function App() {
                           )}
                         </div>
                         <p className="text-xs text-indigo-200 mt-0.5">
-                          Registra ventas por unidades (con deudores/abonos) o recaudos generales.
+                          Registra como: <strong className="text-white">{usuarioLogueadoRecaudador.nombre}</strong>
                         </p>
                       </div>
 
@@ -1155,29 +1719,16 @@ export default function App() {
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Actividad</label>
-                            <select
-                              value={recActividad}
-                              onChange={(e) => setRecActividad(e.target.value)}
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre de la Actividad</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej. Venta de Tamales, Rifa Pro-Templo..."
+                              value={recActividadLibre}
+                              onChange={(e) => setRecActividadLibre(e.target.value)}
                               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
-                            >
-                              {ACTIVIDADES_RECAUDO.map((act) => (
-                                <option key={act} value={act}>{act}</option>
-                              ))}
-                            </select>
+                            />
                           </div>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre del Recaudador Responsable</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ej. Hna. Marta Gómez"
-                            value={recNombre}
-                            onChange={(e) => setRecNombre(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm"
-                          />
                         </div>
 
                         {modoRecaudo === 'UNIDADES' ? (
@@ -1212,35 +1763,30 @@ export default function App() {
                               </div>
                             </div>
 
-                            {/* TARJETAS DE RESUMEN EN VIVO DE CAJA */}
-                            <div className="grid grid-cols-3 gap-2">
-                              <div className="bg-emerald-50 border border-emerald-200 p-2.5 rounded-xl text-center">
+                            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                              <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl text-center">
                                 <span className="text-[10px] font-bold uppercase text-emerald-800 block">En Mano</span>
                                 <span className="text-xs font-extrabold text-emerald-950">{formatCOP(resumenFormUnidades.plataRecaudada)}</span>
                               </div>
-                              <div className="bg-rose-50 border border-rose-200 p-2.5 rounded-xl text-center">
-                                <span className="text-[10px] font-bold uppercase text-rose-800 block">Fiados ({resumenFormUnidades.unidadesFiadas})</span>
+                              <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-rose-800 block">Fiados</span>
                                 <span className="text-xs font-extrabold text-rose-950">{formatCOP(resumenFormUnidades.plataFiada)}</span>
                               </div>
-                              <div className="bg-amber-50 border border-amber-200 p-2.5 rounded-xl text-center">
-                                <span className="text-[10px] font-bold uppercase text-amber-800 block">Sin Vender</span>
-                                <span className="text-xs font-extrabold text-amber-950">{formatCOP(resumenFormUnidades.plataSinVender)}</span>
+                              <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-amber-800 block">Incobrables</span>
+                                <span className="text-xs font-extrabold text-amber-950">{formatCOP(resumenFormUnidades.plataIncobrable)}</span>
+                              </div>
+                              <div className="bg-slate-100 border border-slate-200 p-2 rounded-xl text-center">
+                                <span className="text-[10px] font-bold uppercase text-slate-700 block">Sin Vender</span>
+                                <span className="text-xs font-extrabold text-slate-900">{formatCOP(resumenFormUnidades.plataSinVender)}</span>
                               </div>
                             </div>
 
-                            {/* AVISO SI ESTÁ AGOTADO */}
-                            {resumenFormUnidades.agotado && (
-                              <div className="bg-rose-100 border border-rose-300 text-rose-900 px-3 py-2 rounded-xl text-xs font-bold text-center animate-pulse">
-                                ⚠️ ¡Inventario Agotado! No quedan unidades disponibles para vender o fiar.
-                              </div>
-                            )}
-
-                            {/* SECCION COMPRADORES */}
                             <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 space-y-3">
                               <div className="flex items-center justify-between">
                                 <span className="text-xs font-bold uppercase text-slate-700 flex items-center gap-1.5">
                                   <Users className="w-3.5 h-3.5 text-indigo-700" />
-                                  Compradores y Deudores
+                                  Compradores y Deudores (Editable)
                                 </span>
                                 <span className="text-[11px] font-semibold text-slate-500">Quedan {resumenFormUnidades.unidadesSinVender} unid. libres</span>
                               </div>
@@ -1251,22 +1797,19 @@ export default function App() {
                                   placeholder="Nombre persona..."
                                   value={nuevoCompNombre}
                                   onChange={(e) => setNuevoCompNombre(e.target.value)}
-                                  disabled={resumenFormUnidades.agotado}
-                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs disabled:bg-slate-100"
+                                  className="col-span-5 px-2.5 py-2 rounded-lg border border-slate-300 bg-white text-xs"
                                 />
                                 <input
                                   type="number"
                                   min="1"
                                   value={nuevoCompCantidad}
                                   onChange={(e) => setNuevoCompCantidad(e.target.value)}
-                                  disabled={resumenFormUnidades.agotado}
-                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center disabled:bg-slate-100"
+                                  className="col-span-2 px-2 py-2 rounded-lg border border-slate-300 bg-white text-xs font-bold text-center"
                                 />
                                 <select
                                   value={nuevoCompEstado}
                                   onChange={(e) => setNuevoCompEstado(e.target.value)}
-                                  disabled={resumenFormUnidades.agotado}
-                                  className="col-span-3 px-1 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold disabled:bg-slate-100"
+                                  className="col-span-3 px-1 py-2 rounded-lg border border-slate-300 bg-white text-xs font-semibold"
                                 >
                                   <option value="PAGADO">Pagado</option>
                                   <option value="FIADO">Fiado</option>
@@ -1274,15 +1817,13 @@ export default function App() {
                                 <button
                                   type="button"
                                   onClick={handleAgregarCompradorForm}
-                                  disabled={resumenFormUnidades.agotado}
-                                  className="col-span-2 bg-indigo-950 hover:bg-indigo-900 disabled:bg-slate-300 text-white rounded-lg flex items-center justify-center transition-all"
-                                  title="Agregar persona"
+                                  className="col-span-2 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg flex items-center justify-center transition-all"
                                 >
                                   <UserPlus className="w-4 h-4" />
                                 </button>
                               </div>
 
-                              {nuevoCompEstado === 'FIADO' && !resumenFormUnidades.agotado && (
+                              {nuevoCompEstado === 'FIADO' && (
                                 <div className="flex items-center justify-between gap-2 bg-amber-50 p-2 rounded-lg border border-amber-200">
                                   <label className="text-[11px] font-bold text-amber-900">Abono inicial ($):</label>
                                   <input
@@ -1297,40 +1838,50 @@ export default function App() {
                               )}
 
                               {recCompradores.length > 0 && (
-                                <div className="max-h-40 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200">
+                                <div className="max-h-52 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200 p-2 space-y-2">
                                   {recCompradores.map((c) => {
-                                    const totalC = c.cantidad * resumenFormUnidades.precio;
-                                    const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
-                                    const saldoC = Math.max(0, totalC - abonoC);
+                                    const totalC = (Number(c.cantidad) || 0) * resumenFormUnidades.precio;
+                                    const abonoC = c.estadoPago === 'PAGADO' ? totalC : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
+                                    const saldoC = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalC - abonoC);
 
                                     return (
-                                      <div key={c.id} className="px-3 py-2 flex items-center justify-between gap-2 text-xs">
-                                        <div>
-                                          <span className="font-bold text-slate-800">{c.nombre}</span>
-                                          <span className="text-slate-500 ml-1">({c.cantidad} unid)</span>
-                                          {saldoC > 0 && (
-                                            <span className="block text-[10px] text-rose-700 font-semibold">
-                                              Abono: {formatCOP(abonoC)} | Debe: {formatCOP(saldoC)}
-                                            </span>
-                                          )}
-                                        </div>
-                                        <div className="flex items-center gap-1.5">
-                                          <button
-                                            type="button"
-                                            onClick={() => handleToggleEstadoCompradorForm(c.id)}
-                                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                                              saldoC === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                            }`}
-                                          >
-                                            {saldoC === 0 ? 'Pagado ✓' : 'Fiado'}
-                                          </button>
+                                      <div key={c.id} className="p-2 bg-slate-50 rounded-lg border border-slate-200 space-y-2 text-xs">
+                                        <div className="flex items-center justify-between gap-2">
+                                          <input
+                                            type="text"
+                                            value={c.nombre}
+                                            onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'nombre', e.target.value)}
+                                            className="font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 flex-1 text-xs"
+                                            placeholder="Nombre..."
+                                          />
                                           <button
                                             type="button"
                                             onClick={() => handleEliminarCompradorForm(c.id)}
-                                            className="text-slate-400 hover:text-rose-600"
+                                            className="text-slate-400 hover:text-rose-600 p-1"
+                                            title="Eliminar comprador"
                                           >
-                                            <Trash2 className="w-3.5 h-3.5" />
+                                            <Trash2 className="w-4 h-4" />
                                           </button>
+                                        </div>
+
+                                        <div className="grid grid-cols-2 gap-2">
+                                          <div className="flex items-center gap-1">
+                                            <span className="text-[10px] text-slate-500 font-bold">Unid:</span>
+                                            <input
+                                              type="number"
+                                              min="1"
+                                              value={c.cantidad}
+                                              onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'cantidad', e.target.value)}
+                                              className="w-16 bg-white border border-slate-300 rounded px-2 py-1 font-bold text-center text-xs"
+                                            />
+                                          </div>
+                                          <div className="flex items-center justify-end gap-1">
+                                            <span className={`px-2 py-1 rounded text-[10px] font-bold ${
+                                              c.estadoPago === 'PAGADO' ? 'bg-emerald-100 text-emerald-800' : c.estadoPago === 'INCOBRABLE' ? 'bg-amber-100 text-amber-900' : 'bg-rose-100 text-rose-800'
+                                            }`}>
+                                              {c.estadoPago === 'PAGADO' ? 'Pagado ✓' : c.estadoPago === 'INCOBRABLE' ? 'Incobrable ✕' : `Debe ${formatCOP(saldoC)}`}
+                                            </span>
+                                          </div>
                                         </div>
                                       </div>
                                     );
@@ -1390,13 +1941,12 @@ export default function App() {
                     </div>
                   </div>
 
-                  {/* HISTORIAL RECAUDADOR */}
                   <div className="lg:col-span-7 space-y-4">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                       <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
                         <div>
                           <h2 className="text-base font-bold text-slate-900">Historial de Actividades y Cartera</h2>
-                          <p className="text-xs text-slate-500">Gestiona abonos de deudores y revisa el estado de entrega al tesorero.</p>
+                          <p className="text-xs text-slate-500">Gestiona abonos de deudores, solicita dar de baja como incobrable y pide edición.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
                           {movimientos.filter((m) => m.tipo === 'INGRESO').length} registros
@@ -1427,46 +1977,42 @@ export default function App() {
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
                                       <p className="text-xs text-slate-600 mt-1 font-medium">{item.descripcion}</p>
-                                      <p className="text-xs font-semibold text-slate-700 mt-1">
-                                        Responsable: {item.responsable} ({item.metodoPago})
+                                      <p className="text-xs font-semibold text-indigo-950 mt-1">
+                                        Recaudador: {item.responsable} ({item.metodoPago})
                                       </p>
                                     </div>
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
                                       <div className="text-right">
-                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Recaudado en mano:</span>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Recaudado total:</span>
                                         <span className="text-lg font-extrabold text-slate-900">
                                           {formatCOP(item.montoReportado)}
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
-                                        {item.estado !== 'VERIFICADO' && (
-                                          <>
-                                            {item.edicionAutorizada ? (
-                                              <button
-                                                type="button"
-                                                onClick={() => handleIniciarEdicion(item)}
-                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
-                                              >
-                                                Editar (Autorizado)
-                                              </button>
-                                            ) : item.solicitudEdicion ? (
-                                              <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                                                Esperando Permiso
-                                              </span>
-                                            ) : (
-                                              <button
-                                                type="button"
-                                                onClick={() => {
-                                                  setSolicitudEdicionModal(item);
-                                                  setMotivoSolicitudEdicion('');
-                                                }}
-                                                className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200"
-                                              >
-                                                Solicitar Edición
-                                              </button>
-                                            )}
-                                          </>
+                                        {item.edicionAutorizada ? (
+                                          <button
+                                            type="button"
+                                            onClick={() => handleIniciarEdicion(item)}
+                                            className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
+                                          >
+                                            Editar (Autorizado)
+                                          </button>
+                                        ) : item.solicitudEdicion ? (
+                                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                                            Esperando Permiso
+                                          </span>
+                                        ) : (
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setSolicitudEdicionModal(item);
+                                              setMotivoSolicitudEdicion('');
+                                            }}
+                                            className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200"
+                                          >
+                                            Solicitar Edición
+                                          </button>
                                         )}
                                         {renderEstadoBadge(item)}
                                       </div>
@@ -1477,7 +2023,7 @@ export default function App() {
                                     <div className="bg-indigo-50/80 border border-indigo-100 p-2.5 rounded-xl text-xs text-indigo-950 flex items-start gap-2">
                                       <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
                                       <div>
-                                        <strong className="font-bold">Nota Tesorería:</strong> {item.notaTesorero}
+                                        <strong className="font-bold">Mensaje de Tesorería / Devolución:</strong> {item.notaTesorero}
                                       </div>
                                     </div>
                                   )}
@@ -1498,8 +2044,8 @@ export default function App() {
                                           <span className="font-extrabold text-rose-900">{formatCOP(inv.plataFiada)}</span>
                                         </div>
                                         <div className="bg-amber-50 px-2.5 py-2 rounded-xl border border-amber-200">
-                                          <span className="text-amber-700 block text-[10px]">Sin vender ({inv.unidadesSinVender} unid.)</span>
-                                          <span className="font-extrabold text-amber-900">{formatCOP(inv.plataSinVender)}</span>
+                                          <span className="text-amber-800 block text-[10px]">Incobrables ({inv.unidadesIncobrables})</span>
+                                          <span className="font-extrabold text-amber-950">{formatCOP(inv.plataIncobrable)}</span>
                                         </div>
                                       </div>
 
@@ -1518,22 +2064,30 @@ export default function App() {
                                             <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-2 space-y-2">
                                               {item.compradores.map((c) => {
                                                 const totalComp = c.cantidad * inv.precioUnitario;
-                                                const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
-                                                const saldoPendiente = Math.max(0, totalComp - abonoActual);
+                                                const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
+                                                const saldoPendiente = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalComp - abonoActual);
 
                                                 return (
                                                   <div key={c.id} className="p-2 flex items-center justify-between gap-2 text-xs rounded-lg hover:bg-slate-50">
                                                     <div>
                                                       <span className="font-bold text-slate-800">{c.nombre}</span>
                                                       <span className="text-slate-500 ml-1">• {c.cantidad} unid. ({formatCOP(totalComp)})</span>
-                                                      {saldoPendiente > 0 && (
+                                                      {c.estadoPago === 'INCOBRABLE' ? (
+                                                        <span className="block text-[11px] text-amber-800 font-bold">
+                                                          [Dado de baja como Incobrable / Condonado]
+                                                        </span>
+                                                      ) : c.solicitudIncobrable ? (
+                                                        <span className="block text-[11px] text-amber-600 font-bold">
+                                                          [Esperando aprobación de Tesorería para Incobrable]
+                                                        </span>
+                                                      ) : saldoPendiente > 0 && (
                                                         <span className="block text-[11px] text-rose-700 font-bold">
                                                           Abonado: {formatCOP(abonoActual)} | Debe: {formatCOP(saldoPendiente)}
                                                         </span>
                                                       )}
                                                     </div>
-                                                    <div className="flex items-center gap-2">
-                                                      {saldoPendiente > 0 && (
+                                                    <div className="flex items-center gap-2 flex-wrap justify-end">
+                                                      {c.estadoPago !== 'INCOBRABLE' && !c.solicitudIncobrable && saldoPendiente > 0 && (
                                                         <>
                                                           <button
                                                             type="button"
@@ -1549,17 +2103,24 @@ export default function App() {
                                                           >
                                                             Saldar Todo
                                                           </button>
+                                                          <button
+                                                            type="button"
+                                                            onClick={() => {
+                                                              setSolicitudIncobrableModal({ movimientoId: item.id, compradorId: c.id });
+                                                              setMotivoIncobrableInput('');
+                                                            }}
+                                                            className="px-2 py-1 rounded-lg bg-amber-100 text-amber-900 text-[10px] font-bold hover:bg-amber-200"
+                                                            title="Solicitar a tesorería dar de baja"
+                                                          >
+                                                            Solicitar Incobrable
+                                                          </button>
                                                         </>
                                                       )}
-                                                      <button
-                                                        type="button"
-                                                        onClick={() => handleTogglePagoCompradorExistente(item.id, c.id)}
-                                                        className={`px-3 py-1 rounded-full text-xs font-bold ${
-                                                          saldoPendiente === 0 ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
-                                                        }`}
-                                                      >
-                                                        {saldoPendiente === 0 ? 'Pagado ✓' : 'Fiado'}
-                                                      </button>
+                                                      <span className={`px-3 py-1 rounded-full text-xs font-bold ${
+                                                        c.estadoPago === 'PAGADO' ? 'bg-emerald-100 text-emerald-800' : c.estadoPago === 'INCOBRABLE' ? 'bg-amber-100 text-amber-900' : c.solicitudIncobrable ? 'bg-amber-50 text-amber-700 border border-amber-200' : 'bg-rose-100 text-rose-800'
+                                                      }`}>
+                                                        {c.estadoPago === 'PAGADO' ? 'Pagado ✓' : c.estadoPago === 'INCOBRABLE' ? 'Incobrable ✕' : c.solicitudIncobrable ? 'Solicitud Enviada' : 'Fiado'}
+                                                      </span>
                                                     </div>
                                                   </div>
                                                 );
@@ -1583,35 +2144,66 @@ export default function App() {
           </>
         )}
 
-        {/* ================= MODULO TESORERO ================= */}
         {activeRole === 'TESORERO' && (
           <>
-            {!isTesoreroAuth ? (
+            {!usuarioLogueadoTesorero ? (
               <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
                 <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <ShieldCheck className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Acceso Tesorería Central</h2>
-                <p className="text-sm text-slate-500 mt-1">Ingresa el PIN de tesorería para validar ingresos y arqueos.</p>
+                <h2 className="text-xl font-bold text-slate-900">Ingreso Tesorería Central</h2>
+                <p className="text-sm text-slate-500 mt-1">Ingresa tu usuario y clave de tesorero.</p>
 
-                <form onSubmit={handleTesoreroLogin} className="mt-6 space-y-4">
+                <form onSubmit={handleTesoreroLogin} className="mt-6 space-y-4 text-left">
                   <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario</label>
                     <input
-                      type="password"
-                      maxLength={12}
-                      placeholder="••••"
-                      value={pinInput}
-                      onChange={(e) => setPinInput(e.target.value)}
-                      className="w-full text-center text-2xl tracking-[0.5em] font-bold py-3 px-4 rounded-xl border border-slate-300 focus:ring-2 focus:ring-indigo-600 outline-none"
+                      type="text"
+                      required
+                      placeholder="Ej. tesorero"
+                      value={tesUserLoginInput}
+                      onChange={(e) => setTesUserLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-600 font-medium"
                       autoFocus
                     />
-                    {pinError && (
-                      <p className="text-xs text-rose-600 font-semibold mt-2">{pinError}</p>
-                    )}
                   </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••"
+                      value={tesPassLoginInput}
+                      onChange={(e) => setTesPassLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-indigo-600 font-medium"
+                    />
+                  </div>
+                  {tesLoginError && (
+                    <p className="text-xs text-rose-600 font-semibold">{tesLoginError}</p>
+                  )}
+
+                  <div className="flex items-center justify-between text-xs pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setShowOlvidoClaveModal(true)}
+                      className="text-indigo-700 hover:underline font-bold flex items-center gap-1"
+                    >
+                      <HelpCircle className="w-3.5 h-3.5" />
+                      ¿Se te olvidó tu clave?
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => setShowRestablecerClaveModal(true)}
+                      className="text-emerald-700 hover:underline font-bold flex items-center gap-1"
+                    >
+                      <KeyRound className="w-3.5 h-3.5" />
+                      Tengo autorización
+                    </button>
+                  </div>
+
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
+                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
                   >
                     Ingresar a Tesorería
                   </button>
@@ -1622,34 +2214,29 @@ export default function App() {
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">Tesorero Autorizado (En Línea)</span>
+                    <span className="text-sm font-bold text-slate-800">
+                      Tesorero Conectado: <span className="text-indigo-900 underline">{usuarioLogueadoTesorero.nombre}</span>
+                    </span>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
                     <button
-                      onClick={() => setShowCambiarPinTesorero(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
+                      onClick={() => setShowCambioClaveTesoreroModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
                     >
                       <KeyRound className="w-3.5 h-3.5" />
-                      Cambiar PIN
+                      Cambiar mi Clave
                     </button>
                     <button
                       onClick={handleExportCSV}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Descargar Excel
                     </button>
                     <button
-                      onClick={() => setShowBorrarTodoModal(true)}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                      Borrar Todo
-                    </button>
-                    <button
-                      onClick={() => setIsTesoreroAuth(false)}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                      onClick={() => setUsuarioLogueadoTesorero(null)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
                     >
                       <Lock className="w-3.5 h-3.5" />
                       Cerrar Sesión
@@ -1657,7 +2244,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* TARJETAS DE KPIs SUPERIORES */}
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-start">
@@ -1670,11 +2256,11 @@ export default function App() {
 
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-start">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Salidas</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Salidas Netas</span>
                       <ArrowDownRight className="w-4 h-4 text-rose-600" />
                     </div>
                     <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.totalSalidas)}</p>
-                    <span className="text-[10px] text-slate-500 font-semibold mt-1 block">Gastos e insumos pagados</span>
+                    <span className="text-[10px] text-slate-500 font-semibold mt-1 block">Gastos menos sobrantes devueltos</span>
                   </div>
 
                   <div className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white">
@@ -1714,7 +2300,6 @@ export default function App() {
                   </div>
                 </div>
 
-                {/* PESTAÑAS DE TESORERÍA */}
                 <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                   <button
                     onClick={() => setTesoreroTab('BANDEJA')}
@@ -1724,9 +2309,9 @@ export default function App() {
                   >
                     <Calculator className="w-4 h-4" />
                     <span>Recepción, Arqueo y Permisos</span>
-                    {kpis.cantidadPendientes + kpis.cantidadDescuadres > 0 && (
+                    {(kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesIncobrable) > 0 && (
                       <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
-                        {kpis.cantidadPendientes + kpis.cantidadDescuadres}
+                        {kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesIncobrable}
                       </span>
                     )}
                   </button>
@@ -1752,9 +2337,57 @@ export default function App() {
                   </button>
                 </div>
 
-                {/* BANDEJA DE RECEPCIÓN Y ARQUEOS */}
                 {tesoreroTab === 'BANDEJA' && (
                   <div className="space-y-6">
+                    {kpis.cantidadSolicitudesIncobrable > 0 && (
+                      <div className="bg-amber-50 rounded-2xl border-2 border-amber-300 p-5 shadow-sm">
+                        <h3 className="font-bold text-amber-950 text-sm mb-3 flex items-center gap-2">
+                          <ShoppingBag className="w-4 h-4 text-amber-800" />
+                          Solicitudes de Deudas Incobrables (Dar de Baja)
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {movimientos
+                            .filter((m) => m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c.solicitudIncobrable))
+                            .flatMap((item) => {
+                              const precio = Number(item.precioUnitario) || 0;
+                              return item.compradores
+                                .filter((c) => c.solicitudIncobrable)
+                                .map((c) => {
+                                  const totalC = c.cantidad * precio;
+                                  return (
+                                    <div key={`${item.id}-${c.id}`} className="bg-white p-4 rounded-xl border border-amber-300 shadow-xs flex flex-col justify-between gap-3">
+                                      <div>
+                                        <div className="flex items-center justify-between">
+                                          <span className="text-xs font-mono font-bold bg-amber-100 text-amber-900 px-2 py-0.5 rounded">{item.id}</span>
+                                          <span className="text-xs font-semibold text-slate-500">{item.actividad}</span>
+                                        </div>
+                                        <h4 className="font-bold text-slate-900 text-sm mt-1">Deudor: {c.nombre} ({c.cantidad} unid. • {formatCOP(totalC)})</h4>
+                                        <p className="text-xs text-amber-900 bg-amber-50 p-2.5 rounded-lg border border-amber-200 mt-2">
+                                          <strong>Motivo:</strong> "{c.motivoIncobrable}"
+                                        </p>
+                                      </div>
+                                      <div className="flex items-center gap-2">
+                                        <button
+                                          onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, true)}
+                                          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all"
+                                        >
+                                          Aprobar (Dar de baja)
+                                        </button>
+                                        <button
+                                          onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, false)}
+                                          className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
+                                        >
+                                          Rechazar
+                                        </button>
+                                      </div>
+                                    </div>
+                                  );
+                                });
+                            })}
+                        </div>
+                      </div>
+                    )}
+
                     {kpis.cantidadSolicitudesEdicion > 0 && (
                       <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5 shadow-sm">
                         <h3 className="font-bold text-indigo-950 text-sm mb-3 flex items-center gap-2">
@@ -1799,16 +2432,12 @@ export default function App() {
                     )}
 
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* PENDIENTES POR RECOGER */}
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="font-bold text-slate-900 flex items-center gap-2">
                             <Clock className="w-5 h-5 text-amber-600" />
                             Pendientes por Recoger ({movimientos.filter((m) => m.estado === 'PENDIENTE').length})
                           </h3>
-                          <span className="text-xs font-bold text-amber-800 bg-amber-50 px-2.5 py-1 rounded-full border border-amber-200">
-                            {formatCOP(kpis.pendientePorRecoger)}
-                          </span>
                         </div>
 
                         {movimientos.filter((m) => m.estado === 'PENDIENTE').length === 0 ? (
@@ -1819,32 +2448,58 @@ export default function App() {
                               .filter((m) => m.estado === 'PENDIENTE')
                               .map((item) => {
                                 const inv = calcularResumenInventario(item);
+                                const tieneAbonoAcumulado = Number(item.ultimoAbonoReportado) > 0;
+                                const montoPendienteMostrar = tieneAbonoAcumulado ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
+
                                 return (
-                                  <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3">
-                                    <div>
-                                      <div className="flex items-center gap-2">
-                                        <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">{item.id}</span>
-                                        <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
-                                      </div>
-                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
-                                      <p className="text-xs font-semibold text-slate-700 mt-0.5">
-                                        Entregará: {item.responsable} ({item.metodoPago}) • {item.fecha}
-                                      </p>
-                                      {inv.esUnidades && (
-                                        <div className="text-[11px] text-slate-500 mt-1 flex gap-3">
-                                          <span>Fiados: {inv.unidadesFiadas} unid. ({formatCOP(inv.plataFiada)})</span>
-                                          <span>Sin vender: {inv.unidadesSinVender} unid. ({formatCOP(inv.plataSinVender)})</span>
+                                  <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-3">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">{item.id}</span>
+                                          <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
                                         </div>
-                                      )}
+                                        <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                        <p className="text-xs font-semibold text-slate-700 mt-0.5">
+                                          Recaudador: {item.responsable} ({item.metodoPago}) • {item.fecha}
+                                        </p>
+                                        {inv.esUnidades && (
+                                          <div className="text-[11px] text-slate-500 mt-1 flex gap-3">
+                                            <span>Fiados: {inv.unidadesFiadas} unid. ({formatCOP(inv.plataFiada)})</span>
+                                            <span>Incobrables: {inv.unidadesIncobrables} unid.</span>
+                                          </div>
+                                        )}
+                                      </div>
+
+                                      <div className="flex flex-col items-end gap-1">
+                                        {tieneAbonoAcumulado ? (
+                                          <div className="bg-emerald-100 border border-emerald-300 px-3 py-2 rounded-xl text-right shadow-2xs">
+                                            <span className="text-[10px] uppercase font-extrabold text-emerald-800 block">Nuevo Abono a Recibir:</span>
+                                            <span className="font-extrabold text-lg text-emerald-950">{formatCOP(montoPendienteMostrar)}</span>
+                                          </div>
+                                        ) : (
+                                          <div className="bg-white px-3 py-2 rounded-xl border border-amber-200 shadow-2xs text-right">
+                                            <span className="text-[10px] uppercase font-bold text-amber-800 block">Total a Recibir:</span>
+                                            <span className="font-extrabold text-lg text-slate-900">{formatCOP(montoPendienteMostrar)}</span>
+                                          </div>
+                                        )}
+                                      </div>
                                     </div>
-                                    <div className="text-right shrink-0 w-full sm:w-auto flex sm:flex-col justify-between items-center sm:items-end">
-                                      <span className="font-extrabold text-base text-slate-900">{formatCOP(item.montoReportado)}</span>
+
+                                    <div className="flex items-center gap-2 justify-end pt-2 border-t border-amber-200/60">
                                       <button
                                         onClick={() => openArqueoModal(item)}
-                                        className="mt-1 px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                                        className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
                                       >
                                         <Calculator className="w-3.5 h-3.5" />
                                         Recibir y Contar
+                                      </button>
+                                      <button
+                                        onClick={() => handleCerrarRecaudoSinMasNovedad(item)}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                        title="Cerrar si no hay más por reportar"
+                                      >
+                                        Cerrar (No hay más)
                                       </button>
                                     </div>
                                   </div>
@@ -1854,7 +2509,6 @@ export default function App() {
                         )}
                       </div>
 
-                      {/* DESCUADRES EN REVISIÓN */}
                       <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
                         <div className="flex items-center justify-between mb-4">
                           <h3 className="font-bold text-slate-900 flex items-center gap-2">
@@ -1914,7 +2568,7 @@ export default function App() {
                                         onClick={() => handleAprobarAjusteDescuadre(item)}
                                         className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
                                       >
-                                        Aprobar Ajuste y Cerrar Revisión
+                                        Aprobar Ajuste y Cerrar
                                       </button>
                                     </div>
                                   </div>
@@ -1927,15 +2581,14 @@ export default function App() {
                   </div>
                 )}
 
-                {/* REGISTRAR SALIDA / GASTO */}
                 {tesoreroTab === 'EGRESOS' && (
                   <div className="max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="bg-indigo-950 px-6 py-4 text-white">
                       <h3 className="font-bold text-base flex items-center gap-2">
                         <TrendingDown className="w-5 h-5 text-rose-400" />
-                        Registrar Salida de Dinero (Egreso de Caja)
+                        Registrar Salida de Dinero (Egreso con Devolución de Sobrante)
                       </h3>
-                      <p className="text-xs text-indigo-200 mt-0.5">Todo gasto registrado se descontará automáticamente del Saldo Real en Caja.</p>
+                      <p className="text-xs text-indigo-200 mt-0.5">Autoriza: <strong className="text-white">{usuarioLogueadoTesorero.nombre}</strong></p>
                     </div>
 
                     <form onSubmit={handleRegistrarEgreso} className="p-6 space-y-4">
@@ -1969,45 +2622,57 @@ export default function App() {
                         <input
                           type="text"
                           required
-                          placeholder="Ej. Compra de gas, carne y desechables para venta dominical..."
+                          placeholder="Ej. Compra de gas, carne y desechables..."
                           value={egrConcepto}
                           onChange={(e) => setEgrConcepto(e.target.value)}
                           className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Persona que Recibe / Autoriza</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Persona Responsable</label>
                           <input
                             type="text"
                             required
-                            placeholder="Ej. Hno. Carlos Ruiz"
+                            placeholder="Ej. Hno. Carlos"
                             value={egrResponsable}
                             onChange={(e) => setEgrResponsable(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor de Salida (COP $)</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor Entregado ($)</label>
                           <input
                             type="number"
                             min="100"
                             step="100"
                             required
-                            placeholder="Ej. 85000"
+                            placeholder="Ej. 100000"
                             value={egrMonto}
                             onChange={(e) => setEgrMonto(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-rose-700 bg-white"
                           />
                         </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-emerald-800 mb-1">¿Sobró Plata? Devuelta ($)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="100"
+                            placeholder="Ej. 15000"
+                            value={egrSobranteDevuelto}
+                            onChange={(e) => setEgrSobranteDevuelto(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 text-sm font-extrabold text-emerald-800 bg-emerald-50/50"
+                          />
+                        </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Número de Factura o Soporte (Opcional)</label>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Número de Factura o Nota (Opcional)</label>
                         <input
                           type="text"
-                          placeholder="Ej. Recibo #098 de Supermercado"
+                          placeholder="Ej. Recibo #098"
                           value={egrNota}
                           onChange={(e) => setEgrNota(e.target.value)}
                           className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
@@ -2019,19 +2684,18 @@ export default function App() {
                         className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
                       >
                         <TrendingDown className="w-4 h-4" />
-                        Registrar Salida en el Libro Único
+                        Registrar Salida y Devolución de Sobrante en Caja
                       </button>
                     </form>
                   </div>
                 )}
 
-                {/* LIBRO ÚNICO COMPLETO */}
                 {tesoreroTab === 'LIBRO' && (
                   <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
                     <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/50">
                       <div>
                         <h3 className="text-lg font-bold text-slate-900">Libro Único de Tesorería</h3>
-                        <p className="text-xs text-slate-500">Registro histórico unificado de ingresos, arqueos, descuadres y salidas.</p>
+                        <p className="text-xs text-slate-500">Registro histórico unificado.</p>
                       </div>
 
                       <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
@@ -2066,12 +2730,12 @@ export default function App() {
                           <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b border-slate-200">
                             <th className="py-3.5 px-4 font-bold">Fecha / ID</th>
                             <th className="py-3.5 px-4 font-bold">Actividad / Concepto</th>
-                            <th className="py-3.5 px-4 font-bold">Responsable</th>
+                            <th className="py-3.5 px-4 font-bold">Responsable / Usuario</th>
                             <th className="py-3.5 px-4 font-bold text-right">Reportado</th>
                             <th className="py-3.5 px-4 font-bold text-right text-emerald-800">Entrada Real</th>
-                            <th className="py-3.5 px-4 font-bold text-right text-rose-800">Salida</th>
+                            <th className="py-3.5 px-4 font-bold text-right text-rose-800">Salida Neta</th>
                             <th className="py-3.5 px-4 font-bold">Estado</th>
-                            <th className="py-3.5 px-4 font-bold text-center">Acción</th>
+                            <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 text-sm">
@@ -2084,6 +2748,7 @@ export default function App() {
                           ) : (
                             movimientosFiltrados.map((m) => {
                               const inv = calcularResumenInventario(m);
+                              const salidaRealMuestra = m.tipo === 'EGRESO' ? Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0)) : 0;
                               return (
                                 <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
                                   <td className="py-3.5 px-4 text-xs font-semibold">
@@ -2100,9 +2765,14 @@ export default function App() {
                                       )}
                                     </div>
                                     <span className="text-slate-600 block mt-0.5">{m.descripcion}</span>
+                                    {m.montoSobranteDevuelto > 0 && (
+                                      <span className="block text-[11px] text-emerald-800 font-bold mt-1 bg-emerald-50 p-1.5 rounded border border-emerald-200">
+                                        Sobrante devuelto a caja: {formatCOP(m.montoSobranteDevuelto)}
+                                      </span>
+                                    )}
                                     {m.notaTesorero && (
                                       <span className="block text-[11px] text-indigo-800 font-medium mt-1 bg-indigo-50/50 p-1.5 rounded border border-indigo-100">
-                                        Nota: {m.notaTesorero}
+                                        Nota / Devolución: {m.notaTesorero}
                                       </span>
                                     )}
 
@@ -2111,14 +2781,14 @@ export default function App() {
                                         <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                                           {m.compradores.map((c) => {
                                             const totalC = c.cantidad * inv.precioUnitario;
-                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
-                                            const saldoC = Math.max(0, totalC - abonoC);
+                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                            const saldoC = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalC - abonoC);
                                             return (
                                               <div key={c.id} className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-[11px]">
                                                 <div className="flex justify-between font-bold text-slate-800">
                                                   <span>{c.nombre}</span>
-                                                  <span className={saldoC === 0 ? 'text-emerald-700' : 'text-rose-700'}>
-                                                    {saldoC === 0 ? 'PAGADO ✓' : `Debe ${formatCOP(saldoC)}`}
+                                                  <span className={c.estadoPago === 'PAGADO' ? 'text-emerald-700' : c.estadoPago === 'INCOBRABLE' ? 'text-amber-800' : 'text-rose-700'}>
+                                                    {c.estadoPago === 'PAGADO' ? 'PAGADO ✓' : c.estadoPago === 'INCOBRABLE' ? 'INCOBRABLE ✕' : `Debe ${formatCOP(saldoC)}`}
                                                   </span>
                                                 </div>
                                                 <span className="text-slate-500">{c.cantidad} unid. ({formatCOP(totalC)})</span>
@@ -2129,7 +2799,7 @@ export default function App() {
                                       </div>
                                     )}
                                   </td>
-                                  <td className="py-3.5 px-4 text-xs text-slate-700 font-medium">{m.responsable}</td>
+                                  <td className="py-3.5 px-4 text-xs text-slate-900 font-bold">{m.responsable}</td>
                                   <td className="py-3.5 px-4 text-right text-xs font-semibold text-slate-900">
                                     {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
                                   </td>
@@ -2137,18 +2807,37 @@ export default function App() {
                                     {m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}
                                   </td>
                                   <td className="py-3.5 px-4 text-right text-xs font-extrabold text-rose-600">
-                                    {m.montoSalida > 0 ? formatCOP(m.montoSalida) : '—'}
+                                    {m.tipo === 'EGRESO' ? formatCOP(salidaRealMuestra) : '—'}
                                   </td>
                                   <td className="py-3.5 px-4">{renderEstadoBadge(m)}</td>
                                   <td className="py-3.5 px-4 text-center">
-                                    {m.tipo === 'INGRESO' && m.estado !== 'VERIFICADO' && (
+                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      {m.tipo === 'INGRESO' && m.estado !== 'VERIFICADO' && (
+                                        <button
+                                          onClick={() => openArqueoModal(m)}
+                                          className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
+                                          title="Realizar Arqueo"
+                                        >
+                                          Arqueo
+                                        </button>
+                                      )}
                                       <button
-                                        onClick={() => openArqueoModal(m)}
-                                        className="px-3 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                        onClick={() => setEditingTesoreroMov({ ...m })}
+                                        className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                                        title="Corregir o hacer devolución al recaudador"
                                       >
-                                        Arqueo
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                        Modificar / Devolución
                                       </button>
-                                    )}
+                                      <button
+                                        onClick={() => setEliminarItemModal(m)}
+                                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                                        title="Eliminar registro"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Borrar
+                                      </button>
+                                    </div>
                                   </td>
                                 </tr>
                               );
@@ -2163,51 +2852,538 @@ export default function App() {
             )}
           </>
         )}
+
+        {activeRole === 'ADMINISTRADOR' && (
+          <>
+            {!usuarioLogueadoAdmin ? (
+              <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
+                <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <ShieldAlert className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">Ingreso Módulo Administrador</h2>
+                <p className="text-sm text-slate-500 mt-1">Gestiona usuarios, roles, logo y nombre del sistema.</p>
+
+                <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Admin</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. admin"
+                      value={adminUserLoginInput}
+                      onChange={(e) => setAdminUserLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••"
+                      value={adminPassLoginInput}
+                      onChange={(e) => setAdminPassLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
+                    />
+                  </div>
+                  {adminLoginError && (
+                    <p className="text-xs text-rose-600 font-semibold">{adminLoginError}</p>
+                  )}
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-indigo-950 font-extrabold text-sm shadow-md transition-all mt-2"
+                  >
+                    Ingresar como Administrador
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-6 max-w-4xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span className="text-sm font-bold text-slate-800">
+                      Administrador Conectado: <span className="text-amber-700 underline">{usuarioLogueadoAdmin.nombre}</span>
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowBorrarTodoModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Borrar Base de Datos
+                    </button>
+                    <button
+                      onClick={() => setUsuarioLogueadoAdmin(null)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      Cerrar Sesión
+                    </button>
+                  </div>
+                </div>
+
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                  <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-indigo-700" />
+                    Personalizar Nombre y Logo de la Institución
+                  </h3>
+                  <p className="text-xs text-slate-500">Cambia el título principal y la imagen del logo en la parte superior del sistema para todos los usuarios.</p>
+
+                  <form onSubmit={handleGuardarConfiguracionAdmin} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título Principal</label>
+                        <input
+                          type="text"
+                          required
+                          value={inputConfigTitulo}
+                          onChange={(e) => setInputConfigTitulo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white font-bold"
+                          placeholder="Ej. Tesorería Parroquia San José"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL de la Imagen del Logo</label>
+                        <input
+                          type="url"
+                          value={inputConfigLogo}
+                          onChange={(e) => setInputConfigLogo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                          placeholder="https://ejemplo.com/logo.png"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Descripción corta</label>
+                      <input
+                        type="text"
+                        value={inputConfigSub}
+                        onChange={(e) => setInputConfigSub(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                        placeholder="Ej. Control de Recaudos y Abonos"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-5 py-3 bg-indigo-950 hover:bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+                    >
+                      Guardar Cambios de Identidad
+                    </button>
+                  </form>
+                </div>
+
+                {usuariosSistema.some(u => u.solicitudClave) && (
+                  <div className="bg-amber-50 rounded-2xl border-2 border-amber-300 p-5 shadow-sm">
+                    <h3 className="font-bold text-amber-950 text-sm mb-3 flex items-center gap-2">
+                      <KeyRound className="w-5 h-5 text-amber-700" />
+                      Solicitudes de Recuperación de Contraseña
+                    </h3>
+                    <div className="space-y-3">
+                      {usuariosSistema
+                        .filter(u => u.solicitudClave)
+                        .map(u => (
+                          <div key={u.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-xs flex items-center justify-between gap-3">
+                            <div>
+                              <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                              <span className="text-xs text-slate-500 block">Usuario: <strong className="font-mono text-indigo-900">{u.usuario}</strong> ({u.rol})</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleAutorizarCambioClave(u.id, true)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-xs"
+                              >
+                                Autorizar Cambio
+                              </button>
+                              <button
+                                onClick={() => handleAutorizarCambioClave(u.id, false)}
+                                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
+                              >
+                                Rechazar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-700" />
+                      Gestión Integral de Usuarios
+                    </h3>
+                    <p className="text-xs text-slate-500">Modifica datos, cambia claves, activa/inactiva accesos o elimina usuarios del sistema.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-slate-600">Usuarios Registrados en el Sistema</h4>
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {usuariosSistema.map((u) => (
+                        <div key={u.id} className="py-2.5 px-3 flex items-center justify-between gap-2 text-xs bg-white rounded-lg mb-1 shadow-2xs">
+                          <div>
+                            <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                            <span className="text-slate-500 ml-1">({u.usuario})</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-indigo-100 text-indigo-900' : 'bg-emerald-100 text-emerald-900'}`}>
+                                {u.rol}
+                              </span>
+                              <span className="text-slate-400">Clave: {u.clave}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setEditingUser({ ...u })}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Modificar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEstadoUsuario(u.id)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                u.activo
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                              }`}
+                            >
+                              {u.activo ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                              {u.activo ? 'Activo' : 'Inactivo'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEliminarUsuarioModal(u)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Borrar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-indigo-950 flex items-center gap-1.5">
+                      <UserPlus className="w-4 h-4 text-indigo-700" />
+                      Crear Nuevo Usuario
+                    </h4>
+
+                    <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Hna. Sofía Pérez"
+                            value={nuevoUserNombre}
+                            onChange={(e) => setNuevoUserNombre(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario (Login)</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. sofia"
+                            value={nuevoUserAlias}
+                            onChange={(e) => setNuevoUserAlias(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña / Clave</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Clave numérica..."
+                            value={nuevoUserClave}
+                            onChange={(e) => setNuevoUserClave(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol en el Sistema</label>
+                          <select
+                            value={nuevoUserRol}
+                            onChange={(e) => setNuevoUserRol(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-semibold"
+                          >
+                            <option value="RECAUDADOR">Recaudador</option>
+                            <option value="TESORERO">Tesorero Central</option>
+                            <option value="ADMINISTRADOR">Administrador</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg text-xs font-bold shadow-xs transition-all mt-1"
+                      >
+                        Registrar Nuevo Usuario Activo
+                      </button>
+                    </form>
+                  </div>
+                </div>
+              </div>
+            )}
+          </>
+        )}
       </main>
 
-      {/* ================= MODALES SECUNDARIOS ================= */}
-      {showCambiarPinRecaudador && (
+      {showCambioClaveRecaudadorModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-slate-900">Cambiar PIN de Recaudador</h3>
-            <form onSubmit={handleGuardarNuevoPinRec}>
-              <input
-                type="password"
-                required
-                placeholder="Nuevo PIN..."
-                value={nuevoPinRecInput}
-                onChange={(e) => setNuevoPinRecInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCambiarPinRecaudador(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-indigo-700" />
+              Cambiar mi Contraseña
+            </h3>
+            <form onSubmit={handleCambiarClavePropiaRecaudador} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña Actual</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••"
+                  value={claveActualRecInput}
+                  onChange={(e) => setClaveActualRecInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="Nueva clave..."
+                  value={claveNuevaRecInput}
+                  onChange={(e) => setClaveNuevaRecInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-bold"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowCambioClaveRecaudadorModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar mi Clave</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {showCambiarPinTesorero && (
+      {showCambioClaveTesoreroModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-sm w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-slate-900">Cambiar PIN de Tesorería</h3>
-            <form onSubmit={handleGuardarNuevoPinTes}>
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-indigo-700" />
+              Cambiar mi Contraseña de Tesorero
+            </h3>
+            <form onSubmit={handleCambiarClavePropiaTesorero} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña Actual</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••"
+                  value={claveActualTesInput}
+                  onChange={(e) => setClaveActualTesInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Nueva clave..."
+                  value={claveNuevaTesInput}
+                  onChange={(e) => setClaveNuevaTesInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-bold"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowCambioClaveTesoreroModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar mi Clave</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showOlvidoClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <HelpCircle className="w-5 h-5 text-indigo-700" />
+              Recuperar Contraseña
+            </h3>
+            <form onSubmit={handleEnviarSolicitudClave}>
               <input
-                type="password"
+                type="text"
                 required
-                placeholder="Nuevo PIN..."
-                value={nuevoPinTesInput}
-                onChange={(e) => setNuevoPinTesInput(e.target.value)}
-                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
+                placeholder="Ej. marta"
+                value={usuarioOlvidoInput}
+                onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
                 autoFocus
               />
               <div className="flex gap-2">
-                <button type="button" onClick={() => setShowCambiarPinTesorero(false)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar PIN</button>
+                <button type="button" onClick={() => setShowOlvidoClaveModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {showRestablecerClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-emerald-900 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-emerald-700" />
+              Restablecer mi Contraseña
+            </h3>
+            <form onSubmit={handleConfirmarNuevoCambioClave} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. marta"
+                  value={usuarioRestablecerAlias}
+                  onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-emerald-600 bg-white"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Nueva clave..."
+                  value={nuevaClaveInput}
+                  onChange={(e) => setNuevaClaveInput(e.target.value)}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-emerald-600 bg-white font-bold"
+                />
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowRestablecerClaveModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar Clave</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {solicitudIncobrableModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-amber-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
+              Solicitar Dar de Baja (Incobrable)
+            </h3>
+            <p className="text-xs text-slate-600">
+              Indica por qué esta deuda no se va a poder cobrar para que Tesorería la autorice:
+            </p>
+            <form onSubmit={handleEnviarSolicitudIncobrable}>
+              <textarea
+                rows={3}
+                required
+                placeholder="Ej. La persona se mudó y no tiene cómo pagar..."
+                value={motivoIncobrableInput}
+                onChange={(e) => setMotivoIncobrableInput(e.target.value)}
+                className="w-full px-3 py-2 border border-amber-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-amber-500 bg-amber-50/40"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSolicitudIncobrableModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Modificar Usuario</h3>
+            <form onSubmit={handleGuardarEdicionUsuario} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.nombre}
+                  onChange={(e) => setEditingUser({ ...editingUser, nombre: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Usuario (Login)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.usuario}
+                  onChange={(e) => setEditingUser({ ...editingUser, usuario: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.clave}
+                  onChange={(e) => setEditingUser({ ...editingUser, clave: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol</label>
+                <select
+                  value={editingUser.rol}
+                  onChange={(e) => setEditingUser({ ...editingUser, rol: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white font-semibold"
+                >
+                  <option value="RECAUDADOR">Recaudador</option>
+                  <option value="TESORERO">Tesorero Central</option>
+                  <option value="ADMINISTRADOR">Administrador</option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {eliminarUsuarioModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              ¿Eliminar usuario definitivamente?
+            </h3>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setEliminarUsuarioModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleConfirmarEliminarUsuario} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, eliminar</button>
+            </div>
           </div>
         </div>
       )}
@@ -2216,7 +3392,6 @@ export default function App() {
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <h3 className="font-bold text-base text-rose-700">¿Borrar todo el contenido?</h3>
-            <p className="text-xs text-slate-600">Se eliminarán todos los registros de la base de datos en Supabase.</p>
             <div className="flex gap-2 pt-2">
               <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
               <button onClick={handleBorrarTodo} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs">Sí, borrar todo</button>
@@ -2225,11 +3400,116 @@ export default function App() {
         </div>
       )}
 
+      {eliminarItemModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              ¿Eliminar este registro del libro?
+            </h3>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setEliminarItemModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleEliminarRegistroLibro} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingTesoreroMov && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl my-8">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-indigo-700" />
+                Modificar Registro / Devolución ({editingTesoreroMov.id})
+              </h3>
+              <button onClick={() => setEditingTesoreroMov(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
+                const actualizados = movimientos.map((m) =>
+                  m.id === editingTesoreroMov.id
+                    ? {
+                        ...editingTesoreroMov,
+                        montoReportado: Number(editingTesoreroMov.montoReportado) || 0,
+                        montoRecibido: Number(editingTesoreroMov.montoRecibido) || 0,
+                        montoSalida: Number(editingTesoreroMov.montoSalida) || 0,
+                        montoSobranteDevuelto: Number(editingTesoreroMov.montoSobranteDevuelto) || 0,
+                        notaTesorero: `${editingTesoreroMov.notaTesorero || ''} [Corrección/Devolución por ${nombreTesoreroActual}: ${editingTesoreroMov.notaTesoreroDevolucion || 'Sin nota'}]`,
+                      }
+                    : m
+                );
+                setMovimientos(actualizados);
+                guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+                setEditingTesoreroMov(null);
+                showToast('Registro modificado con éxito. Notificación enviada al recaudador.');
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Monto Reportado ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoReportado}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoReportado: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl font-bold bg-white text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Entrada Real en Caja ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoRecibido}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoRecibido: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl font-bold bg-emerald-50 text-emerald-900"
+                  />
+                </div>
+              </div>
+
+              {editingTesoreroMov.tipo === 'EGRESO' && (
+                <div>
+                  <label className="block font-bold text-emerald-800 mb-1">Sobrante devuelto a caja ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoSobranteDevuelto || ''}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoSobranteDevuelto: e.target.value })}
+                    className="w-full px-3 py-2 border border-emerald-300 rounded-xl font-bold bg-emerald-50 text-emerald-900"
+                    placeholder="Ej. 10000"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Motivo de la Devolución o Corrección (Aviso al Recaudador)</label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Ej. Se recibió un valor menor por error al contar el efectivo..."
+                  value={editingTesoreroMov.notaTesoreroDevolucion || ''}
+                  onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, notaTesoreroDevolucion: e.target.value })}
+                  className="w-full px-3 py-2 border border-indigo-200 rounded-xl bg-indigo-50/50 outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingTesoreroMov(null)} className="flex-1 py-2.5 border rounded-xl font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl font-bold shadow-xs">Guardar y Notificar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {solicitudEdicionModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
-            <p className="text-xs text-slate-500">Explica brevemente a Tesorería por qué necesitas corregir este registro:</p>
             <form onSubmit={handleEnviarSolicitudEdicion}>
               <textarea
                 rows={3}
@@ -2280,38 +3560,10 @@ export default function App() {
       {arqueoItem && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
           <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Recaudo</h3>
-            <p className="text-xs text-slate-600">
-              Registro: <strong>{arqueoItem.id}</strong> • {arqueoItem.fecha}<br />
-              <strong>{arqueoItem.actividad} — {arqueoItem.responsable}</strong><br />
-              <span className="text-slate-500">{arqueoItem.descripcion}</span>
-            </p>
-
-            {calcularResumenInventario(arqueoItem).esUnidades && (
-              <div className="grid grid-cols-3 gap-2 text-center text-xs">
-                <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl">
-                  <span className="text-[10px] font-bold text-emerald-800 block">Pagadas</span>
-                  <span className="font-bold text-emerald-950">{calcularResumenInventario(arqueoItem).unidadesPagadas} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataPagada)})</span>
-                </div>
-                <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl">
-                  <span className="text-[10px] font-bold text-rose-800 block">Fiadas</span>
-                  <span className="font-bold text-rose-950">{calcularResumenInventario(arqueoItem).unidadesFiadas} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataFiada)})</span>
-                </div>
-                <div className="bg-amber-50 border border-amber-200 p-2 rounded-xl">
-                  <span className="text-[10px] font-bold text-amber-800 block">Sin vender</span>
-                  <span className="font-bold text-amber-950">{calcularResumenInventario(arqueoItem).unidadesSinVender} unid. ({formatCOP(calcularResumenInventario(arqueoItem).plataSinVender)})</span>
-                </div>
-              </div>
-            )}
-
-            <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex justify-between items-center">
-              <span className="font-bold text-slate-700">Monto Reportado en Mano por Recaudador:</span>
-              <span className="font-extrabold text-slate-900 text-base">{formatCOP(arqueoItem.montoReportado)}</span>
-            </div>
-
-            <form onSubmit={handleConfirmarArqueo} className="space-y-3">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Monto Físico Contado por el Tesorero ($)</label>
+            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Efectivo</h3>
+            <form onSubmit={handleConfirmarArqueo}>
+              <div className="mb-3">
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Físico Contado ($)</label>
                 <input
                   type="number"
                   min="0"
@@ -2323,30 +3575,8 @@ export default function App() {
                   autoFocus
                 />
               </div>
-
-              {Number(montoFisicoContado || 0) === Number(arqueoItem.montoReportado) ? (
-                <div className="bg-emerald-50 border border-emerald-200 text-emerald-800 px-3 py-2 rounded-xl text-xs font-bold text-center">
-                  ✅ ¡Cuadre exacto! El dinero coincide 100% con lo reportado.
-                </div>
-              ) : (
-                <div className="bg-rose-50 border border-rose-200 text-rose-800 px-3 py-2 rounded-xl text-xs font-bold text-center">
-                  ⚠️ Descuadre de {formatCOP(Math.abs(Number(arqueoItem.montoReportado) - Number(montoFisicoContado || 0)))}. Se generará una novedad en revisión.
-                </div>
-              )}
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Observación / Nota de Tesorería</label>
-                <textarea
-                  rows={2}
-                  placeholder="Ej. Conteo exacto en sobre sellado..."
-                  value={notaArqueo}
-                  onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white"
-                />
-              </div>
-
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold hover:bg-slate-50">Cancelar</button>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
                 <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Confirmar y Recibir</button>
               </div>
             </form>
