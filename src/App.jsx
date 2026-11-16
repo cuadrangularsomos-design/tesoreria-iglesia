@@ -1,10 +1,5 @@
-import { createClient } from '@supabase/supabase-js'
-
-const supabaseUrl = 'https://nymwaxuzfyclynucwavr.supabase.co'
-const supabaseKey = 'sb_publishable_EPQQAp7s9TRI0Qa0bBMxLQ_62mefp-a'
-const supabase = createClient(supabaseUrl, supabaseKey)
-
 import React, { useState, useEffect, useMemo } from 'react';
+import { createClient } from '@supabase/supabase-js';
 import {
   Wallet,
   HandCoins,
@@ -40,6 +35,10 @@ import {
   Settings,
   Calendar
 } from 'lucide-react';
+
+const supabaseUrl = 'https://nymwaxuzfyclynucwavr.supabase.co';
+const supabaseKey = 'sb_publishable_EPQQAp7s9TRI0Qa0bBMxLQ_62mefp-a';
+const supabase = createClient(supabaseUrl, supabaseKey);
 
 const formatCOP = (value) => {
   const num = Number(value) || 0;
