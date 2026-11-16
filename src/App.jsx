@@ -259,18 +259,6 @@ export default function App() {
     setInputConfigLogo(configuracionApp.logoUrl);
   }, [configuracionApp]);
 
-  const handleGuardarConfiguracionAdmin = (e) => {
-    e.preventDefault();
-    const nuevaConf = {
-      titulo: inputConfigTitulo.trim() || 'Tesorería & Recaudos Eclesiásticos',
-      subtitulo: inputConfigSub.trim() || 'Control Estricto de Recaudos',
-      logoUrl: inputConfigLogo.trim()
-    };
-    setConfiguracionApp(nuevaConf);
-    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
-    showToast('¡Encabezado, título y logo actualizados con éxito!');
-  };
-
   const [showOlvidoClaveModal, setShowOlvidoClaveModal] = useState(false);
   const [usuarioOlvidoInput, setUsuarioOlvidoInput] = useState('');
 
@@ -322,7 +310,6 @@ export default function App() {
   const [editingTesoreroMov, setEditingTesoreroMov] = useState(null);
   const [eliminarItemModal, setEliminarItemModal] = useState(null);
   
-  // SOLICITUD DE BORRADO CONTROLADA POR EL PASTOR/ADMIN
   const [solicitudBorradoModal, setSolicitudBorradoModal] = useState(null);
   const [motivoBorradoInput, setMotivoBorradoInput] = useState('');
 
@@ -354,7 +341,6 @@ export default function App() {
     showToast('Se han borrado todos los registros de la base de datos.', 'warning');
   };
 
-  // TESORERÍA YA NO BORRA DIRECTAMENTE: Envía solicitud al pastor/admin
   const handleEnviarSolicitudBorrado = (e) => {
     e.preventDefault();
     if (!solicitudBorradoModal) return;
@@ -383,7 +369,6 @@ export default function App() {
     showToast('Solicitud de borrado enviada al Pastor / Administrador.');
   };
 
-  // PASTOR/ADMIN RESUELVE SOLICITUD DE BORRADO
   const handleResolverBorradoAdmin = (item, autorizar) => {
     const actualizados = movimientos.map((m) => {
       if (m.id === item.id) {
@@ -505,7 +490,6 @@ export default function App() {
     showToast('Usuario eliminado del sistema correctamente.', 'warning');
   };
 
-  // EJECUCIÓN DE CIERRE DE MES EXCLUSIVA PARA EL PASTOR / ADMIN
   const handleEjecutarCierreDeMes = (e) => {
     e.preventDefault();
     const movsDelMes = movimientos.filter(m => m.fecha && m.fecha.startsWith(mesCierreInput));
@@ -2091,11 +2075,11 @@ export default function App() {
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                       <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
                         <div>
-                          <h2 className="text-base font-bold text-slate-900">Historial de Actividades y Cartera</h2>
-                          <p className="text-xs text-slate-500">Gestiona abonos de deudores, solicita dar de baja como incobrable y pide edición.</p>
+                          <h2 className="text-base font-bold text-slate-900">Informe de Mis Recaudos y Estado de Cartera</h2>
+                          <p className="text-xs text-slate-500">Supervisa tus unidades, abonos y deudores en tiempo real.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
-                          {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} registros
+                          {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} actividades
                         </span>
                       </div>
 
@@ -2200,7 +2184,7 @@ export default function App() {
                                             className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950 pt-1"
                                           >
                                             <Users className="w-3.5 h-3.5" />
-                                            {isExpanded ? 'Ocultar lista de compradores y deudores' : `Ver compradores y deudores (${item.compradores.length})`}
+                                            {isExpanded ? 'Ocultar lista de compradores y deudores' : `Ver informe de compradores y deudores (${item.compradores.length})`}
                                           </button>
 
                                           {isExpanded && (
