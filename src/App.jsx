@@ -861,7 +861,7 @@ export default function App() {
     if (modoRecaudo === 'UNIDADES') {
       const producidas = Number(recCantidadProducida) || 0;
       const precio = Number(recPrecioUnitario) || 0;
-      const valorRecaudadoEnMano = resumenFormUnidades.plataRecaudada;
+      const valorRecaudadoEnMano = resumenFormUnidades.plataPagada;
       const descFinal =
         (recDescripcion || '').trim() ||
         `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
@@ -1205,12 +1205,13 @@ export default function App() {
   };
 
   const kpisRecaudadorLogueado = useMemo(() => {
-    if (!usuarioLogueadoRecaudador) return { totalReportado: 0, totalEnMano: 0, totalFiado: 0 };
+    if (!usuarioLogueadoRecaudador) return { totalReportado: 0, totalEnMano: 0, totalFiado: 0, pendienteEntregar: 0 };
     const nombreRec = usuarioLogueadoRecaudador.nombre;
 
     let totalReportado = 0;
     let totalEnMano = 0;
     let totalFiado = 0;
+    let pendienteEntregar = 0;
 
     (movimientos || []).forEach((m) => {
       if (m && m.tipo === 'INGRESO' && m.responsable === nombreRec) {
@@ -1225,10 +1226,15 @@ export default function App() {
         } else {
           totalEnMano += base;
         }
+
+        if (m.estado === 'PENDIENTE') {
+          const pendienteItem = abonosExtras > 0 ? abonosExtras : (base - (Number(m.montoRecibido) || 0));
+          pendienteEntregar += Math.max(0, pendienteItem);
+        }
       }
     });
 
-    return { totalReportado, totalEnMano, totalFiado };
+    return { totalReportado, totalEnMano, totalFiado, pendienteEntregar };
   }, [movimientos, usuarioLogueadoRecaudador]);
 
   const kpis = useMemo(() => {
@@ -1254,8 +1260,8 @@ export default function App() {
         if (m.estado === 'PENDIENTE') {
           const pendienteItem = Number(m.ultimoAbonoReportado) > 0 
             ? Number(m.ultimoAbonoReportado) 
-            : Number(m.montoReportado) || 0;
-          pendientePorRecoger += pendienteItem;
+            : (Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0);
+          pendientePorRecoger += Math.max(0, pendienteItem);
           cantidadPendientes += 1;
         } else if (m.estado === 'DESCUADRE') {
           const diff = Math.abs((Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0));
@@ -1381,8 +1387,8 @@ export default function App() {
       return;
     }
     setArqueoItem(item);
-    const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
-    setMontoFisicoContado(String(montoPendienteARecibir));
+    const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : (Number(item.montoReportado || 0) - (Number(item.montoRecibido) || 0));
+    setMontoFisicoContado(String(Math.max(0, montoPendienteARecibir)));
     setNotaArqueo(item.notaTesorero || '');
   };
 
@@ -1395,10 +1401,9 @@ export default function App() {
     }
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
     
-    // El monto que se esperaba recibir en este arqueo específico
     const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 
       ? Number(arqueoItem.ultimoAbonoReportado) 
-      : Number(arqueoItem.montoReportado || 0);
+      : (Number(arqueoItem.montoReportado || 0) - (Number(arqueoItem.montoRecibido) || 0));
       
     const esExacto = contado === reportadoEsperado;
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
@@ -1406,10 +1411,8 @@ export default function App() {
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === arqueoItem.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
-        // Sumamos al recibido real únicamente lo que el tesorero contó físicamente
         const totalRecibidoReal = recibidoAnterior + contado;
         
-        // Si había abonos acumulados, consolidamos el monto reportado total
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
           ? (Number(m.montoReportado) || 0) + Number(m.ultimoAbonoReportado) 
           : Number(m.montoReportado || 0);
@@ -1445,7 +1448,7 @@ export default function App() {
       return;
     }
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
-    const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+    const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : (Number(item.montoReportado || 0) - (Number(item.montoRecibido) || 0));
 
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === item.id) {
@@ -1458,7 +1461,7 @@ export default function App() {
           ...m,
           montoReportado: nuevoReportadoTotal,
           estado: 'VERIFICADO',
-          montoRecibido: recibidoAnterior + abonoPendiente,
+          montoRecibido: recibidoAnterior + Math.max(0, abonoPendiente),
           edicionAutorizada: false,
           solicitudEdicion: false,
           ultimoAbonoReportado: 0,
@@ -1848,11 +1851,16 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
                   <div className="bg-indigo-950 text-white p-4 rounded-2xl shadow-sm border border-indigo-900">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200 block">Total Reportado por Ti</span>
                     <span className="text-xl font-extrabold text-emerald-400 mt-1 block">{formatCOP(kpisRecaudadorLogueado.totalReportado)}</span>
                     <span className="text-[10px] text-indigo-200 mt-0.5 block">Incluye efectivo inicial y abonos</span>
+                  </div>
+                  <div className="bg-emerald-900 text-white p-4 rounded-2xl shadow-sm border border-emerald-800">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-emerald-200 block">Por Entregar a Tesorería</span>
+                    <span className="text-xl font-extrabold text-amber-300 mt-1 block">{formatCOP(kpisRecaudadorLogueado.pendienteEntregar)}</span>
+                    <span className="text-[10px] text-emerald-200 mt-0.5 block">Incluye nuevos abonos registrados</span>
                   </div>
                   <div className="bg-white p-4 rounded-2xl shadow-sm border border-slate-200">
                     <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500 block">Efectivo / Pagos en Mano</span>
@@ -1986,7 +1994,7 @@ export default function App() {
                             <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                               <div className="bg-emerald-50 border border-emerald-200 p-2 rounded-xl text-center">
                                 <span className="text-[10px] font-bold uppercase text-emerald-800 block">En Mano</span>
-                                <span className="text-xs font-extrabold text-emerald-950">{formatCOP(resumenFormUnidades.plataRecaudada)}</span>
+                                <span className="text-xs font-extrabold text-emerald-950">{formatCOP(resumenFormUnidades.plataPagada)}</span>
                               </div>
                               <div className="bg-rose-50 border border-rose-200 p-2 rounded-xl text-center">
                                 <span className="text-[10px] font-bold uppercase text-rose-800 block">Fiados</span>
@@ -2210,6 +2218,11 @@ export default function App() {
                                         <span className="text-lg font-extrabold text-slate-900">
                                           {formatCOP(totalReportadoItem)}
                                         </span>
+                                        {Number(item.ultimoAbonoReportado) > 0 && (
+                                          <span className="block text-[11px] text-amber-600 font-bold">
+                                            ¡Nuevo Abono de {formatCOP(item.ultimoAbonoReportado)} pendiente de entregar!
+                                          </span>
+                                        )}
                                       </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
                                         {!mesCerradoItem && (
@@ -2637,7 +2650,7 @@ export default function App() {
                             .map((item) => {
                               if (!item) return null;
                               const inv = calcularResumenInventario(item);
-                              const abonoOpendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+                              const abonoOpendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : (Number(item.montoReportado || 0) - (Number(item.montoRecibido) || 0));
                               const mesCerradoItem = esMesCerrado(item.fecha);
 
                               return (
