@@ -229,10 +229,9 @@ export default function App() {
     }
   };
 
-  // Verificador si un mes está cerrado oficialmente
   const esMesCerrado = (fechaStr) => {
     if (!fechaStr) return false;
-    const mesKey = fechaStr.substring(0, 7); // 'AAAA-MM'
+    const mesKey = fechaStr.substring(0, 7);
     return (cierresMensuales || []).some(c => c && c.mes === mesKey);
   };
 
@@ -687,13 +686,12 @@ export default function App() {
       precio,
       totalEsperado,
       unidadesPagadas,
+      plataPagada,
       unidadesFiadas,
-      unidadesIncobrables,
-      unidadesAsignadas,
-      unidadesSinVender,
-      plataRecaudada,
       plataFiada,
+      unidadesIncobrables,
       plataIncobrable,
+      unidadesSinVender,
       plataSinVender,
       totalUnidadesFaltantes,
       totalPlataFaltante,
@@ -1396,15 +1394,22 @@ export default function App() {
       return;
     }
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
-    const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 ? Number(arqueoItem.ultimoAbonoReportado) : Number(arqueoItem.montoReportado || 0);
+    
+    // El monto que se esperaba recibir en este arqueo específico
+    const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 
+      ? Number(arqueoItem.ultimoAbonoReportado) 
+      : Number(arqueoItem.montoReportado || 0);
+      
     const esExacto = contado === reportadoEsperado;
-
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === arqueoItem.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
+        // Sumamos al recibido real únicamente lo que el tesorero contó físicamente
         const totalRecibidoReal = recibidoAnterior + contado;
+        
+        // Si había abonos acumulados, consolidamos el monto reportado total
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
           ? (Number(m.montoReportado) || 0) + Number(m.ultimoAbonoReportado) 
           : Number(m.montoReportado || 0);
@@ -1421,7 +1426,7 @@ export default function App() {
             (notaArqueo || '').trim() ||
             (esExacto
               ? `Recibido por ${nombreTesoreroActual} (${formatCOP(contado)}).`
-              : `Recibido por ${nombreTesoreroActual}. Faltaron ${formatCOP(reportadoEsperado - contado)}.`),
+              : `Recibido por ${nombreTesoreroActual}. Faltaron ${formatCOP(reportadoEsperado - contado)} (Contó ${formatCOP(contado)} de ${formatCOP(reportadoEsperado)}).`),
         };
       }
       return m;
@@ -1430,7 +1435,7 @@ export default function App() {
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setArqueoItem(null);
-    showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre.');
+    showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre reflejado.');
   };
 
   const handleCerrarRecaudoSinMasNovedad = (item) => {
@@ -1642,6 +1647,9 @@ export default function App() {
             box-shadow: none !important;
             border: none !important;
             background: white !important;
+          }
+          .no-print {
+            display: none !important;
           }
         }
       `}</style>
@@ -2730,7 +2738,7 @@ export default function App() {
                                             <button
                                               type="button"
                                               onClick={() => handleAprobarAjusteDescuadre(item)}
-                                              className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
+                                              className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs font-bold shadow-xs transition-all"
                                             >
                                               Aprobar Ajuste y Cerrar
                                             </button>
@@ -2949,6 +2957,11 @@ export default function App() {
                                   </td>
                                   <td className="p-3 text-slate-600 max-w-xs truncate" title={m.descripcion}>
                                     {m.descripcion}
+                                    {m.montoSobranteDevuelto > 0 && (
+                                      <span className="block text-[10px] text-emerald-700 font-bold">
+                                        Devuelto a caja: {formatCOP(m.montoSobranteDevuelto)}
+                                      </span>
+                                    )}
                                     {m.notaTesorero && <span className="block text-[10px] text-indigo-700 italic">Nota: {m.notaTesorero}</span>}
                                   </td>
                                   <td className="p-3 text-slate-700 font-medium">{m.responsable}</td>
@@ -3230,7 +3243,7 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                <div className="flex items-center justify-between pt-2">
+                                <div className="flex items-center justify-between pt-2 no-print">
                                   <button
                                     type="button"
                                     onClick={() => handleReabrirMesPastor(c.mes)}
@@ -3319,7 +3332,7 @@ export default function App() {
                             .map((usr) => (
                               <div key={usr.id} className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between gap-4">
                                 <div>
-                                  <span className="font-bold text-amber-950 text-sm">El usuario <strong className="underline">{usr.nombre}</strong> (usuario: <em>{usr.usuario}</em>) solicita restablecer su contraseña.</span>
+                                  <span className="font-bold text-amber-950 text-sm">El usuario <strong className="underline">{usr.nombre}</strong> (usuario: <em>{usr.usuario}</em>) solicita restablecer sua contraseña.</span>
                                 </div>
                                 <div className="flex items-center gap-2">
                                   <button
