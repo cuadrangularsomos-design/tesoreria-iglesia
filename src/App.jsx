@@ -29,7 +29,12 @@ import {
   HelpCircle,
   Calendar,
   TrendingDown,
-  Settings
+  Settings,
+  Database,
+  Upload,
+  MessageSquarePlus,
+  UserCog,
+  Tags
 } from 'lucide-react';
 
 const supabaseUrl = 'https://nymwaxuzfyclynucwavr.supabase.co';
@@ -76,6 +81,19 @@ const formatCOP = (value) => {
     currency: 'COP',
     maximumFractionDigits: 0,
   }).format(num);
+};
+
+const obtenerMesSiguiente = (mesStr) => {
+  if (!mesStr || !mesStr.includes('-')) return new Date().toISOString().substring(0, 7);
+  const [anioStr, mesNumStr] = mesStr.split('-');
+  let anio = parseInt(anioStr, 10);
+  let mes = parseInt(mesNumStr, 10);
+  mes += 1;
+  if (mes > 12) {
+    mes = 1;
+    anio += 1;
+  }
+  return `${anio}-${String(mes).padStart(2, '0')}`;
 };
 
 const calcularResumenInventario = (item) => {
@@ -163,7 +181,7 @@ const calcularResumenInventario = (item) => {
   };
 };
 
-const CATEGORIAS_EGRESO = [
+const CATEGORIAS_EGRESO_DEFAULT = [
   'Insumos Cocina',
   'Servicios Públicos',
   'Mantenimiento Templo',
@@ -180,17 +198,26 @@ export default function App() {
     titulo: 'Tesorería & Recaudos Eclesiásticos',
     subtitulo: 'Control Estricto de Recaudos, Abonos y Cierres en Tiempo Real • Supabase',
     logoUrl: '',
-    nombreIglesia: 'Iglesia Central Comunitaria'
+    nombreIglesia: 'Iglesia Central Comunitaria',
+    saldoInicialGlobal: 0,
+    saldosInicialesPorMes: {},
+    umbralEgresoMayor: 200000,
+    notasPastorales: [],
+    categoriasEgreso: CATEGORIAS_EGRESO_DEFAULT,
+    fechaInicioVigencia: ''
   });
 
   const [usuariosSistema, setUsuariosSistema] = useState([
-    { id: 'US-0', nombre: 'Administrador / Pastor', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solicitudClave: false, claveAutorizada: false },
+    { id: 'US-P1', nombre: 'Pastor Principal', usuario: 'pastor', clave: 'pastor2026', rol: 'PASTOR', activo: true, solicitudClave: false, claveAutorizada: false },
+    { id: 'US-0', nombre: 'Administrador Sistema', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solicitudClave: false, claveAutorizada: false },
     { id: 'US-1', nombre: 'Tesorero Principal', usuario: 'tesorero', clave: '1234', rol: 'TESORERO', activo: true, solicitudClave: false, claveAutorizada: false },
     { id: 'US-2', nombre: 'Hna. Marta Gómez', usuario: 'marta', clave: '2026', rol: 'RECAUDADOR', activo: true, solicitudClave: false, claveAutorizada: false },
     { id: 'US-3', nombre: 'Hno. Carlos Ruiz', usuario: 'carlos', clave: '2026', rol: 'RECAUDADOR', activo: true, solicitudClave: false, claveAutorizada: false }
   ]);
 
   const [cargandoNube, setCargandoNube] = useState(true);
+  const [mesCajaActivo, setMesCajaActivo] = useState(() => new Date().toISOString().substring(0, 7));
+  const [modoVistaCaja, setModoVistaCaja] = useState('ACUMULADO');
 
   useEffect(() => {
     let montado = true;
@@ -200,12 +227,36 @@ export default function App() {
         const data = await supabaseRest.fetchEstado();
         if (data && montado) {
           if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
-          if (data.usuarios && Array.isArray(data.usuarios)) setUsuariosSistema(data.usuarios);
+          if (data.usuarios && Array.isArray(data.usuarios)) {
+            const listaUsr = data.usuarios;
+            const tienePastor = listaUsr.some((u) => u && u.rol === 'PASTOR');
+            if (!tienePastor) {
+              setUsuariosSistema([
+                { id: 'US-P1', nombre: 'Pastor Principal', usuario: 'pastor', clave: 'pastor2026', rol: 'PASTOR', activo: true, solicitudClave: false, claveAutorizada: false },
+                ...listaUsr
+              ]);
+            } else {
+              setUsuariosSistema(listaUsr);
+            }
+          }
           if (data.config) {
-            setConfiguracionApp((prev) => ({ ...prev, ...data.config }));
+            setConfiguracionApp((prev) => ({
+              ...prev,
+              ...data.config,
+              saldosInicialesPorMes: data.config.saldosInicialesPorMes || prev.saldosInicialesPorMes || {},
+              notasPastorales: Array.isArray(data.config.notasPastorales) ? data.config.notasPastorales : [],
+              umbralEgresoMayor: data.config.umbralEgresoMayor !== undefined ? Number(data.config.umbralEgresoMayor) : 200000,
+              categoriasEgreso: Array.isArray(data.config.categoriasEgreso) && data.config.categoriasEgreso.length > 0
+                ? data.config.categoriasEgreso
+                : CATEGORIAS_EGRESO_DEFAULT,
+              fechaInicioVigencia: data.config.fechaInicioVigencia || ''
+            }));
             setAdminConfigTitulo(data.config.titulo || 'Tesorería & Recaudos Eclesiásticos');
             setAdminConfigSubtitulo(data.config.subtitulo || '');
             setAdminConfigLogoUrl(data.config.logoUrl || '');
+            setAdminConfigIglesia(data.config.nombreIglesia || 'Iglesia Central Comunitaria');
+            setAdminConfigSaldoInicialGlobal(String(data.config.saldoInicialGlobal || 0));
+            setAdminConfigUmbralEgreso(String(data.config.umbralEgresoMayor !== undefined ? data.config.umbralEgresoMayor : 200000));
           }
           if (data.cierres) setCierresMensuales(Array.isArray(data.cierres) ? data.cierres : []);
         }
@@ -248,12 +299,18 @@ export default function App() {
   const esMesCerrado = (fechaStr) => {
     if (!fechaStr) return false;
     const mesKey = fechaStr.substring(0, 7);
-    return (cierresMensuales || []).some((c) => c && c.mes === mesKey);
+    const anioKey = fechaStr.substring(0, 4);
+    return (cierresMensuales || []).some(
+      (c) => c && (c.mes === mesKey || (c.tipoCierre === 'ANUAL' && c.anio === anioKey))
+    );
   };
 
   const [activeRole, setActiveRole] = useState('RECAUDADOR');
-  const [adminTab, setAdminTab] = useState('AUDITORIA');
+  const [pastorTab, setPastorTab] = useState('AUDITORIA');
+  const [adminTab, setAdminTab] = useState('CONFIG');
   const [mesCierreInput, setMesCierreInput] = useState(() => new Date().toISOString().substring(0, 7));
+  const [anioCierreInput, setAnioCierreInput] = useState(() => new Date().getFullYear().toString());
+  const [trasladarSaldoAlNuevoAnio, setTrasladarSaldoAlNuevoAnio] = useState(true);
 
   const [usuarioLogueadoRecaudador, setUsuarioLogueadoRecaudador] = useState(null);
   const [recUserLoginInput, setRecUserLoginInput] = useState('');
@@ -271,6 +328,11 @@ export default function App() {
   const [claveActualTesInput, setClaveActualTesInput] = useState('');
   const [claveNuevaTesInput, setClaveNuevaTesInput] = useState('');
 
+  const [usuarioLogueadoPastor, setUsuarioLogueadoPastor] = useState(null);
+  const [pastorUserLoginInput, setPastorUserLoginInput] = useState('');
+  const [pastorPassLoginInput, setPastorPassLoginInput] = useState('');
+  const [pastorLoginError, setPastorLoginError] = useState('');
+
   const [usuarioLogueadoAdmin, setUsuarioLogueadoAdmin] = useState(null);
   const [adminUserLoginInput, setAdminUserLoginInput] = useState('');
   const [adminPassLoginInput, setAdminPassLoginInput] = useState('');
@@ -284,11 +346,32 @@ export default function App() {
   const [nuevaClaveInput, setNuevaClaveInput] = useState('');
 
   const [eliminarUsuarioModal, setEliminarUsuarioModal] = useState(null);
+  const [editarUsuarioModal, setEditarUsuarioModal] = useState(null);
+  const [editUserNombre, setEditUserNombre] = useState('');
+  const [editUserAlias, setEditUserAlias] = useState('');
+  const [editUserClave, setEditUserClave] = useState('');
+  const [editUserRol, setEditUserRol] = useState('RECAUDADOR');
+  const [editUserActivo, setEditUserActivo] = useState(true);
 
   const [adminConfigTitulo, setAdminConfigTitulo] = useState(configuracionApp.titulo);
   const [adminConfigSubtitulo, setAdminConfigSubtitulo] = useState(configuracionApp.subtitulo);
   const [adminConfigLogoUrl, setAdminConfigLogoUrl] = useState(configuracionApp.logoUrl);
   const [adminConfigIglesia, setAdminConfigIglesia] = useState(configuracionApp.nombreIglesia || 'Iglesia Central Comunitaria');
+  const [adminConfigSaldoInicialGlobal, setAdminConfigSaldoInicialGlobal] = useState(String(configuracionApp.saldoInicialGlobal || 0));
+  const [adminConfigUmbralEgreso, setAdminConfigUmbralEgreso] = useState(String(configuracionApp.umbralEgresoMayor || 200000));
+
+  const [nuevaCategoriaInput, setNuevaCategoriaInput] = useState('');
+  const [editandoCategoriaIdx, setEditandoCategoriaIdx] = useState(null);
+  const [editandoCategoriaValor, setEditandoCategoriaValor] = useState('');
+
+  const [showSaldoInicialModal, setShowSaldoInicialModal] = useState(false);
+  const [mesSaldoInicialModal, setMesSaldoInicialModal] = useState(() => new Date().toISOString().substring(0, 7));
+  const [valorSaldoInicialModalInput, setValorSaldoInicialModalInput] = useState('0');
+
+  const [nuevaNotaPastoralTexto, setNuevaNotaPastoralTexto] = useState('');
+  const [nuevaNotaPastoralPrioridad, setNuevaNotaPastoralPrioridad] = useState('INFORMATIVA');
+
+  const [jsonBackupPreview, setJsonBackupPreview] = useState(null);
 
   const [toast, setToast] = useState(null);
   const showToast = (message, type = 'success') => {
@@ -353,6 +436,12 @@ export default function App() {
   const [montoFisicoContado, setMontoFisicoContado] = useState('');
   const [notaArqueo, setNotaArqueo] = useState('');
 
+  const categoriasDisponibles = useMemo(() => {
+    return Array.isArray(configuracionApp.categoriasEgreso) && configuracionApp.categoriasEgreso.length > 0
+      ? configuracionApp.categoriasEgreso
+      : CATEGORIAS_EGRESO_DEFAULT;
+  }, [configuracionApp.categoriasEgreso]);
+
   const [egrFecha, setEgrFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [egrCategoria, setEgrCategoria] = useState('Insumos Cocina');
   const [egrConcepto, setEgrConcepto] = useState('');
@@ -361,11 +450,51 @@ export default function App() {
   const [egrNota, setEgrNota] = useState('');
   const [egrSobranteDevuelto, setEgrSobranteDevuelto] = useState('');
 
+  useEffect(() => {
+    if (categoriasDisponibles.length > 0 && !categoriasDisponibles.includes(egrCategoria)) {
+      setEgrCategoria(categoriasDisponibles[0]);
+    }
+  }, [categoriasDisponibles, egrCategoria]);
+
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
 
   const toggleExpandRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
+  };
+
+  const openModalSaldoInicial = (mesTarget = mesCajaActivo) => {
+    const saldosMap = configuracionApp.saldosInicialesPorMes || {};
+    const valorActual =
+      saldosMap[mesTarget] !== undefined
+        ? saldosMap[mesTarget]
+        : configuracionApp.saldoInicialGlobal || 0;
+    setMesSaldoInicialModal(mesTarget);
+    setValorSaldoInicialModalInput(String(valorActual));
+    setShowSaldoInicialModal(true);
+  };
+
+  const handleGuardarSaldoInicialMes = (e) => {
+    e.preventDefault();
+    if (esMesCerrado(`${mesSaldoInicialModal}-01`)) {
+      showToast('Este mes ya fue cerrado oficialmente por el Pastor. No se puede modificar su saldo inicial.', 'error');
+      return;
+    }
+    const nuevoSaldo = Number(valorSaldoInicialModalInput.toString().replace(/[^\d-]/g, '')) || 0;
+    const saldosMapActual = configuracionApp.saldosInicialesPorMes || {};
+    const nuevaConfig = {
+      ...configuracionApp,
+      saldoInicialGlobal: modoVistaCaja !== 'MENSUAL' ? nuevoSaldo : configuracionApp.saldoInicialGlobal,
+      saldosInicialesPorMes: {
+        ...saldosMapActual,
+        [mesSaldoInicialModal]: nuevoSaldo
+      }
+    };
+    setConfiguracionApp(nuevaConfig);
+    setMesCajaActivo(mesSaldoInicialModal);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConfig, cierresMensuales);
+    setShowSaldoInicialModal(false);
+    showToast(`Saldo Inicial configurado en ${formatCOP(nuevoSaldo)}.`);
   };
 
   const handleEnviarSolicitudBorrado = (e) => {
@@ -397,10 +526,10 @@ export default function App() {
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setSolicitudBorradoModal(null);
     setMotivoBorradoInput('');
-    showToast('Solicitud de borrado enviada al Pastor / Administrador.');
+    showToast('Solicitud de borrado enviada al Pastor.');
   };
 
-  const handleResolverBorradoAdmin = (item, autorizar) => {
+  const handleResolverBorradoPastor = (item, autorizar) => {
     if (!item) return;
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === item.id) {
@@ -425,7 +554,7 @@ export default function App() {
     });
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    showToast(autorizar ? 'Borrado autorizado. Ya se puede eliminar del libro.' : 'Solicitud de borrado denegada.');
+    showToast(autorizar ? 'Borrado autorizado por el Pastor. Ya se puede eliminar del libro.' : 'Solicitud de borrado denegada.');
   };
 
   const handleEliminarRegistroLibro = () => {
@@ -510,10 +639,10 @@ export default function App() {
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setSolicitudEdicionLibroModal(null);
     setMotivoEdicionLibroInput('');
-    showToast('Solicitud de edición enviada al Pastor / Administrador.');
+    showToast('Solicitud de edición enviada al Pastor.');
   };
 
-  const handleResolverEdicionLibroAdmin = (item, autorizar) => {
+  const handleResolverEdicionLibroPastor = (item, autorizar) => {
     if (!item) return;
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === item.id) {
@@ -538,7 +667,70 @@ export default function App() {
     });
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    showToast(autorizar ? 'Corrección autorizada. Tesorería ya puede editar el registro.' : 'Solicitud de corrección denegada.');
+    showToast(autorizar ? 'Corrección autorizada por el Pastor. Tesorería ya puede editar el registro.' : 'Solicitud de corrección denegada.');
+  };
+
+  const handleResolverVistoBuenoEgresoMayor = (item, aprobar) => {
+    if (!item) return;
+    const nombrePastorActual = usuarioLogueadoPastor ? usuarioLogueadoPastor.nombre : 'Pastor';
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === item.id) {
+        return {
+          ...m,
+          vistoBuenoPastoral: aprobar ? 'APROBADO' : 'RECHAZADO',
+          autorizadoPorPastor: aprobar ? nombrePastorActual : '',
+          notaTesorero: `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[${
+            aprobar
+              ? `Visto Bueno Pastoral APROBADO por ${nombrePastorActual}`
+              : `Egreso Mayor RECHAZADO por ${nombrePastorActual}`
+          }]`
+        };
+      }
+      return m;
+    });
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    showToast(
+      aprobar
+        ? `Visto bueno otorgado por ${nombrePastorActual} al egreso ${item.id}.`
+        : `Egreso ${item.id} marcado como rechazado por el Pastor.`
+    );
+  };
+
+  const handleAgregarNotaPastoral = (e) => {
+    e.preventDefault();
+    const texto = nuevaNotaPastoralTexto.trim();
+    if (!texto) {
+      showToast('Escribe el contenido de la nota pastoral.', 'error');
+      return;
+    }
+    const nuevaNota = {
+      id: `NP-${Date.now()}`,
+      fecha: new Date().toISOString().split('T')[0],
+      autor: usuarioLogueadoPastor ? usuarioLogueadoPastor.nombre : 'Pastor Principal',
+      prioridad: nuevaNotaPastoralPrioridad,
+      contenido: texto
+    };
+    const notasActuales = Array.isArray(configuracionApp.notasPastorales) ? configuracionApp.notasPastorales : [];
+    const nuevaConfig = {
+      ...configuracionApp,
+      notasPastorales: [nuevaNota, ...notasActuales]
+    };
+    setConfiguracionApp(nuevaConfig);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConfig, cierresMensuales);
+    setNuevaNotaPastoralTexto('');
+    showToast('Nota Pastoral publicada y visible para Tesorería.');
+  };
+
+  const handleEliminarNotaPastoral = (notaId) => {
+    const notasActuales = Array.isArray(configuracionApp.notasPastorales) ? configuracionApp.notasPastorales : [];
+    const nuevaConfig = {
+      ...configuracionApp,
+      notasPastorales: notasActuales.filter((n) => n && n.id !== notaId)
+    };
+    setConfiguracionApp(nuevaConfig);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConfig, cierresMensuales);
+    showToast('Nota pastoral archivada/eliminada.');
   };
 
   const openEditarLibroModal = (item) => {
@@ -605,7 +797,7 @@ export default function App() {
             edicionLibroAutorizada: false,
             solicitudEdicionLibro: false,
             motivoEdicionLibro: '',
-            notaTesorero: `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Egreso corregido por ${nombreTesoreroActual} with autorización Pastoral]`
+            notaTesorero: `${m.notaTesorero ? m.notaTesorero + ' | ' : ''}[Egreso corregido por ${nombreTesoreroActual} con autorización Pastoral]`
           };
         }
       }
@@ -620,15 +812,87 @@ export default function App() {
 
   const handleGuardarConfiguracionApp = (e) => {
     e.preventDefault();
+    const saldoGlobalNum = Number(adminConfigSaldoInicialGlobal.toString().replace(/[^\d-]/g, '')) || 0;
+    const umbralNum = Math.max(0, Number(adminConfigUmbralEgreso.toString().replace(/\D/g, '')) || 0);
+    const saldosMapActual = configuracionApp.saldosInicialesPorMes || {};
+
     const nuevaConf = {
+      ...configuracionApp,
       titulo: adminConfigTitulo.trim() || 'Tesorería & Recaudos Eclesiásticos',
       subtitulo: adminConfigSubtitulo.trim() || 'Control Estricto de Recaudos, Abonos y Cierres en Tiempo Real • Supabase',
       logoUrl: adminConfigLogoUrl.trim(),
-      nombreIglesia: adminConfigIglesia.trim() || 'Iglesia Central Comunitaria'
+      nombreIglesia: adminConfigIglesia.trim() || 'Iglesia Central Comunitaria',
+      saldoInicialGlobal: saldoGlobalNum,
+      umbralEgresoMayor: umbralNum,
+      saldosInicialesPorMes: {
+        ...saldosMapActual,
+        [mesCajaActivo]: saldosMapActual[mesCajaActivo] !== undefined ? saldosMapActual[mesCajaActivo] : saldoGlobalNum
+      }
     };
     setConfiguracionApp(nuevaConf);
     guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
-    showToast('¡Configuración de la plataforma actualizada con éxito!');
+    showToast('¡Configuración general del sistema actualizada con éxito!');
+  };
+
+  const handleAgregarCategoriaEgreso = (e) => {
+    e.preventDefault();
+    const nombreCat = nuevaCategoriaInput.trim();
+    if (!nombreCat) {
+      showToast('Escribe el nombre de la categoría.', 'error');
+      return;
+    }
+    const yaExiste = categoriasDisponibles.some((c) => c.toLowerCase() === nombreCat.toLowerCase());
+    if (yaExiste) {
+      showToast('Esa categoría ya existe en la lista.', 'warning');
+      return;
+    }
+    const actualizadas = [...categoriasDisponibles, nombreCat];
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasEgreso: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    setNuevaCategoriaInput('');
+    showToast(`Categoría "${nombreCat}" agregada correctamente.`);
+  };
+
+  const handleGuardarEdicionCategoria = (idx) => {
+    const nuevoNombre = editandoCategoriaValor.trim();
+    if (!nuevoNombre) {
+      showToast('El nombre de la categoría no puede estar vacío.', 'error');
+      return;
+    }
+    const yaExiste = categoriasDisponibles.some((c, i) => i !== idx && c.toLowerCase() === nuevoNombre.toLowerCase());
+    if (yaExiste) {
+      showToast('Ya existe otra categoría con ese nombre.', 'warning');
+      return;
+    }
+    const actualizadas = categoriasDisponibles.map((c, i) => (i === idx ? nuevoNombre : c));
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasEgreso: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    setEditandoCategoriaIdx(null);
+    setEditandoCategoriaValor('');
+    showToast('Categoría actualizada.');
+  };
+
+  const handleEliminarCategoriaEgreso = (idx) => {
+    if (categoriasDisponibles.length <= 1) {
+      showToast('Debe existir al menos una categoría de egreso.', 'error');
+      return;
+    }
+    const actualizadas = categoriasDisponibles.filter((_, i) => i !== idx);
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasEgreso: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    showToast('Categoría eliminada de la lista.', 'warning');
   };
 
   const handleCrearUsuarioSistema = (e) => {
@@ -665,6 +929,52 @@ export default function App() {
     showToast(`Usuario ${nuevoUser.nombre} creado con éxito.`);
   };
 
+  const openEditarUsuarioModal = (usr) => {
+    if (!usr) return;
+    setEditarUsuarioModal(usr);
+    setEditUserNombre(usr.nombre || '');
+    setEditUserAlias(usr.usuario || '');
+    setEditUserClave(usr.clave || '');
+    setEditUserRol(usr.rol || 'RECAUDADOR');
+    setEditUserActivo(usr.activo !== false);
+  };
+
+  const handleGuardarEdicionUsuario = (e) => {
+    e.preventDefault();
+    if (!editarUsuarioModal) return;
+    if (!editUserNombre.trim() || !editUserAlias.trim() || !editUserClave.trim()) {
+      showToast('Todos los campos del usuario son obligatorios.', 'error');
+      return;
+    }
+    const aliasLimpio = editUserAlias.trim().toLowerCase();
+    const duplicado = (usuariosSistema || []).some(
+      (u) => u && u.id !== editarUsuarioModal.id && u.usuario && u.usuario.toLowerCase() === aliasLimpio
+    );
+    if (duplicado) {
+      showToast('Ya existe otro usuario con ese alias.', 'error');
+      return;
+    }
+
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.id === editarUsuarioModal.id) {
+        return {
+          ...u,
+          nombre: editUserNombre.trim(),
+          usuario: aliasLimpio,
+          clave: editUserClave.trim(),
+          rol: editUserRol,
+          activo: editUserActivo
+        };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    setEditarUsuarioModal(null);
+    showToast('Datos del usuario actualizados correctamente.');
+  };
+
   const handleToggleEstadoUsuario = (userId) => {
     const actualizados = (usuariosSistema || []).map((u) => {
       if (u && u.id === userId) {
@@ -693,6 +1003,72 @@ export default function App() {
     showToast('Usuario eliminado del sistema correctamente.', 'warning');
   };
 
+  const handleDescargarRespaldoJSON = () => {
+    const backupPayload = {
+      version: '2.0',
+      fechaExportacion: new Date().toISOString(),
+      iglesia: configuracionApp.nombreIglesia || 'Iglesia Central Comunitaria',
+      datos: movimientos,
+      usuarios: usuariosSistema,
+      config: configuracionApp,
+      cierres: cierresMensuales
+    };
+    const blob = new Blob([JSON.stringify(backupPayload, null, 2)], { type: 'application/json;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    link.href = url;
+    link.setAttribute('download', `Respaldo_Tesoreria_${new Date().toISOString().split('T')[0]}.json`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    showToast('Respaldo completo en formato JSON descargado.');
+  };
+
+  const handleSeleccionarArchivoJSON = (e) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const parsed = JSON.parse(event.target?.result || '{}');
+        if (!Array.isArray(parsed.datos) || !Array.isArray(parsed.usuarios)) {
+          showToast('El archivo JSON no tiene una estructura válida de Tesorería.', 'error');
+          return;
+        }
+        setJsonBackupPreview({
+          nombreArchivo: file.name,
+          fechaExportacion: parsed.fechaExportacion || 'Desconocida',
+          totalMovimientos: parsed.datos.length,
+          totalUsuarios: parsed.usuarios.length,
+          totalCierres: Array.isArray(parsed.cierres) ? parsed.cierres.length : 0,
+          payload: parsed
+        });
+      } catch (err) {
+        showToast('Error al leer el archivo JSON. Verifica que no esté corrupto.', 'error');
+      }
+    };
+    reader.readAsText(file);
+    e.target.value = '';
+  };
+
+  const handleConfirmarRestauracionJSON = () => {
+    if (!jsonBackupPreview?.payload) return;
+    const { datos, usuarios, config, cierres } = jsonBackupPreview.payload;
+    const nuevosMovs = Array.isArray(datos) ? datos : [];
+    const nuevosUsrs = Array.isArray(usuarios) ? usuarios : usuariosSistema;
+    const nuevaConf = config ? { ...configuracionApp, ...config } : configuracionApp;
+    const nuevosCierres = Array.isArray(cierres) ? cierres : [];
+
+    setMovimientos(nuevosMovs);
+    setUsuariosSistema(nuevosUsrs);
+    setConfiguracionApp(nuevaConf);
+    setCierresMensuales(nuevosCierres);
+    guardarEnNube(nuevosMovs, nuevosUsrs, nuevaConf, nuevosCierres);
+    setJsonBackupPreview(null);
+    showToast('¡Base de datos restaurada y sincronizada con éxito desde el respaldo JSON!');
+  };
+
+  // --- PASTOR: CIERRE DE MES (AUDITORÍA DEL MES SIN REINICIAR ACUMULADOS A CERO) ---
   const handleEjecutarCierreDeMes = (e) => {
     e.preventDefault();
     const movsDelMes = (movimientos || []).filter((m) => m && m.fecha && m.fecha.startsWith(mesCierreInput));
@@ -707,31 +1083,126 @@ export default function App() {
       }
     });
 
+    const saldosMap = configuracionApp.saldosInicialesPorMes || {};
+    const saldoInicialDelMes =
+      saldosMap[mesCierreInput] !== undefined
+        ? Number(saldosMap[mesCierreInput]) || 0
+        : Number(configuracionApp.saldoInicialGlobal) || 0;
+
+    const mesSiguiente = obtenerMesSiguiente(mesCierreInput);
+    const saldoFinalCalculadoDelMes = saldoInicialDelMes + entradasMes - salidasMes;
+
     const nuevoCierre = {
       id: 'CIERRE-' + mesCierreInput,
+      tipoCierre: 'MENSUAL',
       mes: mesCierreInput,
       fechaCierre: new Date().toISOString().split('T')[0],
-      responsableCierre: usuarioLogueadoAdmin ? usuarioLogueadoAdmin.nombre : 'Pastor / Administrador',
+      responsableCierre: usuarioLogueadoPastor ? usuarioLogueadoPastor.nombre : 'Pastor Principal',
+      saldoInicialMes: saldoInicialDelMes,
       totalEntradas: entradasMes,
       totalSalidas: salidasMes,
       balanceNeto: entradasMes - salidasMes,
       cantidadMovimientos: movsDelMes.length,
-      saldoCajaFinal: kpis.saldoRealEnCaja
+      saldoCajaFinal: saldoFinalCalculadoDelMes,
+      mesSiguienteTraslado: mesSiguiente
     };
 
     const sinDuplicados = (cierresMensuales || []).filter((c) => c && c.mes !== mesCierreInput);
     const actualizadosCierres = [nuevoCierre, ...sinDuplicados];
 
+    const nuevosSaldosPorMes = {
+      ...saldosMap,
+      [mesCierreInput]: saldoInicialDelMes,
+      [mesSiguiente]: saldoFinalCalculadoDelMes
+    };
+
+    const nuevaConfigConTraslado = {
+      ...configuracionApp,
+      saldosInicialesPorMes: nuevosSaldosPorMes
+    };
+
     setCierresMensuales(actualizadosCierres);
-    guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
-    showToast(`¡Cierre oficial del mes ${mesCierreInput} ejecutado y sellado por el Pastor con éxito!`);
+    setConfiguracionApp(nuevaConfigConTraslado);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConfigConTraslado, actualizadosCierres);
+    showToast(
+      `¡Cierre de ${mesCierreInput} sellado por el Pastor! El período quedó bloqueado y el acumulado de caja continúa intacto.`
+    );
+  };
+
+  // --- PASTOR: CIERRE DE AÑO FISCAL (REINICIO DE ENTRADAS Y SALIDAS EN CERO AUTORIZADO) ---
+  const handleEjecutarCierreAnualPastor = (e) => {
+    e.preventDefault();
+    const anioObjetivo = (anioCierreInput || '').trim();
+    if (!/^\d{4}$/.test(anioObjetivo)) {
+      showToast('Ingresa un año válido de 4 dígitos (Ej. 2026).', 'error');
+      return;
+    }
+
+    const movsDelAnio = (movimientos || []).filter((m) => m && m.fecha && m.fecha.startsWith(anioObjetivo));
+    let entradasAnio = 0;
+    let salidasAnio = 0;
+
+    movsDelAnio.forEach((m) => {
+      if (m.tipo === 'INGRESO') {
+        entradasAnio += Number(m.montoRecibido) || Number(m.montoReportado) || 0;
+      } else if (m.tipo === 'EGRESO') {
+        salidasAnio += Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0));
+      }
+    });
+
+    const saldoBase = Number(configuracionApp.saldoInicialGlobal) || 0;
+    const saldoFinalAnio = saldoBase + entradasAnio - salidasAnio;
+    const anioSiguiente = String(Number(anioObjetivo) + 1);
+    const fechaInicioNuevoAnio = `${anioSiguiente}-01-01`;
+
+    const nuevoCierreAnual = {
+      id: `CIERRE-ANUAL-${anioObjetivo}`,
+      tipoCierre: 'ANUAL',
+      mes: `${anioObjetivo}-ANUAL`,
+      anio: anioObjetivo,
+      fechaCierre: new Date().toISOString().split('T')[0],
+      responsableCierre: usuarioLogueadoPastor ? usuarioLogueadoPastor.nombre : 'Pastor Principal',
+      saldoInicialMes: saldoBase,
+      totalEntradas: entradasAnio,
+      totalSalidas: salidasAnio,
+      balanceNeto: entradasAnio - salidasAnio,
+      cantidadMovimientos: movsDelAnio.length,
+      saldoCajaFinal: saldoFinalAnio,
+      saldoTrasladado: trasladarSaldoAlNuevoAnio ? saldoFinalAnio : 0
+    };
+
+    const sinDuplicados = (cierresMensuales || []).filter((c) => c && c.id !== nuevoCierreAnual.id);
+    const actualizadosCierres = [nuevoCierreAnual, ...sinDuplicados];
+
+    const nuevaConfigAnual = {
+      ...configuracionApp,
+      fechaInicioVigencia: fechaInicioNuevoAnio,
+      saldoInicialGlobal: trasladarSaldoAlNuevoAnio ? saldoFinalAnio : 0
+    };
+
+    setCierresMensuales(actualizadosCierres);
+    setConfiguracionApp(nuevaConfigAnual);
+    setModoVistaCaja('ACUMULADO');
+    guardarEnNube(movimientos, usuariosSistema, nuevaConfigAnual, actualizadosCierres);
+
+    showToast(
+      trasladarSaldoAlNuevoAnio
+        ? `¡Cierre Anual ${anioObjetivo} autorizado! Entradas y Salidas vuelven a $0 para ${anioSiguiente} con Saldo Inicial de ${formatCOP(saldoFinalAnio)}.`
+        : `¡Cierre Anual ${anioObjetivo} autorizado! Entradas, Salidas y Caja reiniciados a $0 para el año ${anioSiguiente}.`
+    );
   };
 
   const handleReabrirMesPastor = (mesKey) => {
     const actualizadosCierres = (cierresMensuales || []).filter((c) => c && c.mes !== mesKey);
+    const esAnual = mesKey && mesKey.endsWith('-ANUAL');
+    const nuevaConf = esAnual
+      ? { ...configuracionApp, fechaInicioVigencia: '' }
+      : configuracionApp;
+
     setCierresMensuales(actualizadosCierres);
-    guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
-    showToast(`El mes ${mesKey} ha sido reabierto por el Pastor. Ya se permiten modificaciones.`, 'warning');
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, actualizadosCierres);
+    showToast(`El período ${mesKey} ha sido reabierto por el Pastor. Ya se permiten modificaciones.`, 'warning');
   };
 
   const handleGuardarTextoActa = (cierreId) => {
@@ -1474,9 +1945,28 @@ export default function App() {
     return { totalReportado, totalEnMano, totalFiado };
   }, [movimientos, usuarioLogueadoRecaudador]);
 
+  // --- CÁLCULO INTEGRADO DE CAJA (ACUMULADO CONTINUO / ANUAL / MENSUAL) ---
   const kpis = useMemo(() => {
+    const saldosMap = configuracionApp.saldosInicialesPorMes || {};
+    const anioActivo = (mesCajaActivo || new Date().toISOString().substring(0, 7)).substring(0, 4);
+    const fechaCorteVigencia = configuracionApp.fechaInicioVigencia || '';
+
+    const saldoInicialMesActual =
+      saldosMap[mesCajaActivo] !== undefined
+        ? Number(saldosMap[mesCajaActivo]) || 0
+        : Number(configuracionApp.saldoInicialGlobal) || 0;
+
+    const saldoInicialGlobal = Number(configuracionApp.saldoInicialGlobal) || 0;
+
     let totalEntradasVerificadas = 0;
     let totalSalidasNetas = 0;
+    let entradasVigenciaActual = 0;
+    let salidasVigenciaActual = 0;
+    let entradasAnioActivo = 0;
+    let salidasAnioActivo = 0;
+    let entradasMesActivo = 0;
+    let salidasMesActivo = 0;
+
     let pendientePorRecoger = 0;
     let descuadreAcumulado = 0;
     let cantidadPendientes = 0;
@@ -1485,16 +1975,28 @@ export default function App() {
     let cantidadSolicitudesIncobrable = 0;
     let cantidadSolicitudesBorrado = 0;
     let cantidadSolicitudesEdicionLibro = 0;
+    let cantidadEgresosMayoresPendientes = 0;
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
+    const listaDescuadres = [];
+    const listaCarteraCalle = [];
 
     (movimientos || []).forEach((m) => {
       if (!m) return;
+      const esDelMesActivo = m.fecha && m.fecha.startsWith(mesCajaActivo);
+      const esDelAnioActivo = m.fecha && m.fecha.startsWith(anioActivo);
+      const esDeVigenciaActual = !fechaCorteVigencia || (m.fecha && m.fecha >= fechaCorteVigencia);
+
       if (m.solicitudBorrado && !m.borradoAutorizado) cantidadSolicitudesBorrado += 1;
       if (m.solicitudEdicionLibro && !m.edicionLibroAutorizada) cantidadSolicitudesEdicionLibro += 1;
+      if (m.tipo === 'EGRESO' && m.vistoBuenoPastoral === 'PENDIENTE') cantidadEgresosMayoresPendientes += 1;
 
       if (m.tipo === 'INGRESO') {
-        totalEntradasVerificadas += Number(m.montoRecibido) || 0;
+        const recibido = Number(m.montoRecibido) || 0;
+        totalEntradasVerificadas += recibido;
+        if (esDeVigenciaActual) entradasVigenciaActual += recibido;
+        if (esDelAnioActivo) entradasAnioActivo += recibido;
+        if (esDelMesActivo) entradasMesActivo += recibido;
 
         if (m.estado === 'PENDIENTE') {
           const pendienteItem = Number(m.ultimoAbonoReportado) > 0
@@ -1506,6 +2008,7 @@ export default function App() {
           const diff = Math.abs((Number(m.montoReportado) || 0) - (Number(m.montoRecibido) || 0));
           descuadreAcumulado += diff;
           cantidadDescuadres += 1;
+          listaDescuadres.push({ ...m, diferencia: diff });
         }
         if (m.solicitudEdicion) cantidadSolicitudesEdicion += 1;
 
@@ -1516,17 +2019,74 @@ export default function App() {
           const inv = calcularResumenInventario(m);
           totalPlataFiadaCalle += inv.plataFiada;
           totalPlataSinVenderCalle += inv.plataSinVender;
+
+          if (inv.plataFiada > 0 || inv.plataSinVender > 0) {
+            const precioU = Number(m.precioUnitario) || 0;
+            const deudoresActivos = (m.compradores || [])
+              .filter((c) => c && c.estadoPago !== 'PAGADO' && c.estadoPago !== 'INCOBRABLE')
+              .map((c) => {
+                const totalC = (Number(c.cantidad) || 0) * precioU;
+                const abonadoC = Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
+                return {
+                  id: c.id,
+                  nombre: c.nombre,
+                  cantidad: c.cantidad,
+                  totalCompra: totalC,
+                  abonado: abonadoC,
+                  saldoPendiente: Math.max(0, totalC - abonadoC),
+                  solicitudIncobrable: !!c.solicitudIncobrable
+                };
+              })
+              .filter((d) => d.saldoPendiente > 0);
+
+            listaCarteraCalle.push({
+              id: m.id,
+              fecha: m.fecha,
+              actividad: m.actividad,
+              responsable: m.responsable,
+              plataFiada: inv.plataFiada,
+              unidadesFiadas: inv.unidadesFiadas,
+              plataSinVender: inv.plataSinVender,
+              unidadesSinVender: inv.unidadesSinVender,
+              deudores: deudoresActivos
+            });
+          }
         }
       } else if (m.tipo === 'EGRESO') {
-        const salidaReal = (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0);
-        totalSalidasNetas += Math.max(0, salidaReal);
+        const salidaReal = Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0));
+        totalSalidasNetas += salidaReal;
+        if (esDeVigenciaActual) salidasVigenciaActual += salidaReal;
+        if (esDelAnioActivo) salidasAnioActivo += salidaReal;
+        if (esDelMesActivo) salidasMesActivo += salidaReal;
       }
     });
 
-    const saldoRealEnCaja = totalEntradasVerificadas - totalSalidasNetas;
+    let entradasMostradas = entradasVigenciaActual;
+    let salidasMostradas = salidasVigenciaActual;
+    let saldoInicialMostrado = saldoInicialGlobal;
+
+    if (modoVistaCaja === 'ANUAL') {
+      entradasMostradas = entradasAnioActivo;
+      salidasMostradas = salidasAnioActivo;
+      saldoInicialMostrado = saldoInicialGlobal;
+    } else if (modoVistaCaja === 'MENSUAL') {
+      entradasMostradas = entradasMesActivo;
+      salidasMostradas = salidasMesActivo;
+      saldoInicialMostrado = saldoInicialMesActual;
+    }
+
+    const saldoRealEnCaja = saldoInicialMostrado + entradasMostradas - salidasMostradas;
     const totalCarteraYSinVender = totalPlataFiadaCalle + totalPlataSinVenderCalle;
 
     return {
+      saldoInicialMostrado,
+      saldoInicialMesActual,
+      entradasMostradas,
+      salidasMostradas,
+      entradasMesActivo,
+      salidasMesActivo,
+      entradasAnioActivo,
+      salidasAnioActivo,
       totalEntradasVerificadas,
       totalSalidas: totalSalidasNetas,
       saldoRealEnCaja,
@@ -1538,9 +2098,14 @@ export default function App() {
       cantidadSolicitudesIncobrable,
       cantidadSolicitudesBorrado,
       cantidadSolicitudesEdicionLibro,
+      cantidadEgresosMayoresPendientes,
       totalCarteraYSinVender,
+      totalPlataFiadaCalle,
+      totalPlataSinVenderCalle,
+      listaDescuadres,
+      listaCarteraCalle,
     };
-  }, [movimientos]);
+  }, [movimientos, configuracionApp, mesCajaActivo, modoVistaCaja]);
 
   const handleRecaudadorLogin = (e) => {
     e.preventDefault();
@@ -1592,6 +2157,32 @@ export default function App() {
     setTesUserLoginInput('');
     setTesPassLoginInput('');
     showToast(`Sesión de Tesorería iniciada: ${encontrado.nombre}.`);
+  };
+
+  const handlePastorLogin = (e) => {
+    e.preventDefault();
+    const uInput = (pastorUserLoginInput || '').trim().toLowerCase();
+    const pInput = (pastorPassLoginInput || '').trim();
+
+    const encontrado = (usuariosSistema || []).find(
+      (u) => u && u.rol === 'PASTOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    );
+
+    if (!encontrado) {
+      setPastorLoginError('Credenciales pastorales incorrectas.');
+      return;
+    }
+
+    if (!encontrado.activo) {
+      setPastorLoginError('Este usuario Pastor se encuentra INACTIVO.');
+      return;
+    }
+
+    setUsuarioLogueadoPastor(encontrado);
+    setPastorLoginError('');
+    setPastorUserLoginInput('');
+    setPastorPassLoginInput('');
+    showToast(`Sesión Pastoral iniciada: ${encontrado.nombre}.`);
   };
 
   const handleAdminLogin = (e) => {
@@ -1684,7 +2275,7 @@ export default function App() {
   const handleCerrarRecaudoSinMasNovedad = (item) => {
     if (!item) return;
     if (esMesCerrado(item.fecha)) {
-      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede modificar.', 'error');
       return;
     }
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
@@ -1757,6 +2348,9 @@ export default function App() {
       return;
     }
 
+    const umbral = Number(configuracionApp.umbralEgresoMayor) || 0;
+    const requiereVistoBueno = umbral > 0 && valorSalida >= umbral;
+
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
     const descDetallada = `Salida detallada por concepto de [${egrCategoria}]: ${egrConcepto.trim()}. Destinatario/Responsable: ${egrResponsable.trim()}`;
 
@@ -1773,7 +2367,11 @@ export default function App() {
       montoSalida: valorSalida,
       montoSobranteDevuelto: sobrante,
       estado: 'EGRESO_REGISTRADO',
-      notaTesorero: (egrNota || '').trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
+      vistoBuenoPastoral: requiereVistoBueno ? 'PENDIENTE' : 'NO_REQUIERE',
+      notaTesorero:
+        (egrNota || '').trim() +
+        (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : '') +
+        (requiereVistoBueno ? ` [Supera umbral de ${formatCOP(umbral)}: Pendiente Visto Bueno Pastoral]` : ''),
       ultimoAbonoReportado: 0
     };
 
@@ -1784,17 +2382,21 @@ export default function App() {
     setEgrMonto('');
     setEgrNota('');
     setEgrSobranteDevuelto('');
-    showToast(`Salida registrada por ${formatCOP(valorSalida)}${sobrante > 0 ? ` (Sobrante devuelto de ${formatCOP(sobrante)} sumado a caja)` : ''}.`);
+    showToast(
+      requiereVistoBueno
+        ? `Salida registrada por ${formatCOP(valorSalida)}. Enviada al Pastor para Visto Bueno de Egreso Mayor.`
+        : `Salida registrada por ${formatCOP(valorSalida)}${sobrante > 0 ? ` (Sobrante devuelto de ${formatCOP(sobrante)} sumado a caja)` : ''}.`
+    );
     setTesoreroTab('LIBRO');
   };
 
   const handleExportCSV = () => {
     const headers = [
-      'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Nota'
+      'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Visto Bueno Pastoral', 'Nota'
     ];
     const rows = (movimientos || []).map((m) => [
       m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
-      m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, `"${m.notaTesorero || ''}"`
+      m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, m.vistoBuenoPastoral || 'N/A', `"${m.notaTesorero || ''}"`
     ]);
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
     const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
@@ -1843,6 +2445,24 @@ export default function App() {
             Mes Cerrado
           </span>
         )}
+        {m.vistoBuenoPastoral === 'PENDIENTE' && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-100 text-amber-900 border border-amber-300">
+            <Clock className="w-3 h-3 text-amber-700" />
+            Pendiente Visto Bueno Pastoral
+          </span>
+        )}
+        {m.vistoBuenoPastoral === 'APROBADO' && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-900 border border-emerald-300">
+            <ShieldCheck className="w-3 h-3 text-emerald-700" />
+            Visto Bueno Pastoral ✓
+          </span>
+        )}
+        {m.vistoBuenoPastoral === 'RECHAZADO' && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-rose-100 text-rose-900 border border-rose-300">
+            <AlertTriangle className="w-3 h-3 text-rose-700" />
+            Rechazado por Pastor
+          </span>
+        )}
         {m.estado === 'VERIFICADO' && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
@@ -1870,6 +2490,13 @@ export default function App() {
       </div>
     );
   };
+
+  const alertasPastor =
+    kpis.cantidadSolicitudesBorrado +
+    kpis.cantidadSolicitudesEdicionLibro +
+    kpis.cantidadEgresosMayoresPendientes;
+
+  const alertasAdmin = (usuariosSistema || []).filter((u) => u && u.solicitudClave).length;
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
@@ -1984,18 +2611,35 @@ export default function App() {
               </button>
 
               <button
-                onClick={() => setActiveRole('ADMINISTRADOR')}
+                onClick={() => setActiveRole('PASTOR')}
                 className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
-                  activeRole === 'ADMINISTRADOR'
+                  activeRole === 'PASTOR'
                     ? 'bg-amber-400 text-indigo-950 shadow-sm'
                     : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
                 }`}
               >
-                {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
-                <span>Pastor / Admin</span>
-                {(kpis.cantidadSolicitudesBorrado + kpis.cantidadSolicitudesEdicionLibro + ((usuariosSistema || []).some((u) => u && u.solicitudClave) ? 1 : 0)) > 0 && (
+                {usuarioLogueadoPastor ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
+                <span>Pastor</span>
+                {alertasPastor > 0 && (
                   <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-600 text-white animate-pulse">
-                    {kpis.cantidadSolicitudesBorrado + kpis.cantidadSolicitudesEdicionLibro + ((usuariosSistema || []).some((u) => u && u.solicitudClave) ? 1 : 0)}
+                    {alertasPastor}
+                  </span>
+                )}
+              </button>
+
+              <button
+                onClick={() => setActiveRole('ADMINISTRADOR')}
+                className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-bold transition-all ${
+                  activeRole === 'ADMINISTRADOR'
+                    ? 'bg-sky-400 text-indigo-950 shadow-sm'
+                    : 'text-indigo-200 hover:text-white hover:bg-indigo-800/50'
+                }`}
+              >
+                {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <Settings className="w-3.5 h-3.5 text-sky-300" />}
+                <span>Administrador</span>
+                {alertasAdmin > 0 && (
+                  <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-amber-400 text-indigo-950 animate-pulse">
+                    {alertasAdmin}
                   </span>
                 )}
               </button>
@@ -2005,6 +2649,7 @@ export default function App() {
       </header>
 
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-6">
+        {/* ================= ROL 1: RECAUDADOR ================= */}
         {activeRole === 'RECAUDADOR' && (
           <>
             {!usuarioLogueadoRecaudador ? (
@@ -2632,6 +3277,7 @@ export default function App() {
           </>
         )}
 
+        {/* ================= ROL 2: TESORERO ================= */}
         {activeRole === 'TESORERO' && (
           <>
             {!usuarioLogueadoTesorero ? (
@@ -2700,14 +3346,47 @@ export default function App() {
             ) : (
               <div className="space-y-6">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
-                  <div className="flex items-center gap-2.5">
-                    <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
-                    <span className="text-sm font-bold text-slate-800">
-                      Tesorero Conectado: <span className="text-indigo-900 underline">{usuarioLogueadoTesorero.nombre}</span>
-                    </span>
+                  <div className="flex items-center gap-3 flex-wrap">
+                    <div className="flex items-center gap-2">
+                      <span className="w-2.5 h-2.5 rounded-full bg-emerald-500 animate-pulse"></span>
+                      <span className="text-sm font-bold text-slate-800">
+                        Tesorero Conectado: <span className="text-indigo-900 underline">{usuarioLogueadoTesorero.nombre}</span>
+                      </span>
+                    </div>
+
+                    <div className="flex items-center gap-1.5 bg-slate-100 px-2.5 py-1 rounded-xl border border-slate-200">
+                      <Calendar className="w-3.5 h-3.5 text-indigo-800" />
+                      <span className="text-[11px] font-bold text-slate-600">Vista Caja:</span>
+                      <select
+                        value={modoVistaCaja}
+                        onChange={(e) => setModoVistaCaja(e.target.value)}
+                        className="text-xs font-extrabold text-indigo-950 bg-transparent outline-none cursor-pointer"
+                      >
+                        <option value="ACUMULADO">Acumulado Continuo (Vigencia)</option>
+                        <option value="ANUAL">Año {mesCajaActivo.substring(0, 4)}</option>
+                        <option value="MENSUAL">Solo Mes {mesCajaActivo}</option>
+                      </select>
+                      {modoVistaCaja === 'MENSUAL' && (
+                        <input
+                          type="month"
+                          value={mesCajaActivo}
+                          onChange={(e) => setMesCajaActivo(e.target.value)}
+                          className="text-xs font-extrabold text-indigo-950 bg-white px-1.5 py-0.5 rounded border border-slate-300 outline-none cursor-pointer ml-1"
+                        />
+                      )}
+                    </div>
                   </div>
 
                   <div className="flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={() => openModalSaldoInicial(mesCajaActivo)}
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-amber-50 hover:bg-amber-100 text-amber-900 border border-amber-200 text-xs font-bold transition-all"
+                      title="Configurar el Saldo Inicial de Caja"
+                    >
+                      <Banknote className="w-3.5 h-3.5 text-amber-700" />
+                      Saldo Inicial ({formatCOP(kpis.saldoInicialMostrado)})
+                    </button>
                     <button
                       onClick={() => setShowCambioClaveTesoreroModal(true)}
                       className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-indigo-50 hover:bg-indigo-100 text-indigo-900 text-xs font-bold transition-all"
@@ -2732,14 +3411,44 @@ export default function App() {
                   </div>
                 </div>
 
+                {Array.isArray(configuracionApp.notasPastorales) && configuracionApp.notasPastorales.length > 0 && (
+                  <div className="bg-amber-50/90 border border-amber-300 rounded-2xl p-4 shadow-xs space-y-2">
+                    <div className="flex items-center gap-2 text-amber-950 font-bold text-xs uppercase tracking-wider">
+                      <MessageSquarePlus className="w-4 h-4 text-amber-700" />
+                      <span>Notas y Directrices Pastorales Vigentes ({configuracionApp.notasPastorales.length})</span>
+                    </div>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-2.5">
+                      {configuracionApp.notasPastorales.map((nota) => (
+                        <div key={nota.id} className="bg-white p-3 rounded-xl border border-amber-200 text-xs flex flex-col justify-between gap-1">
+                          <p className="text-slate-800 font-medium">{nota.contenido}</p>
+                          <div className="flex items-center justify-between text-[10px] text-slate-500 pt-1 border-t border-slate-100">
+                            <span>Por: <strong>{nota.autor}</strong> • {nota.fecha}</span>
+                            <span className={`px-1.5 py-0.5 rounded font-bold ${
+                              nota.prioridad === 'URGENTE' ? 'bg-rose-100 text-rose-800' : 'bg-amber-100 text-amber-900'
+                            }`}>
+                              {nota.prioridad}
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                     <div className="flex justify-between items-start">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Entradas</span>
                       <ArrowUpRight className="w-4 h-4 text-emerald-600" />
                     </div>
-                    <p className="text-lg font-extrabold text-slate-900 mt-2">{formatCOP(kpis.totalEntradasVerificadas)}</p>
-                    <span className="text-[10px] text-emerald-700 font-semibold mt-1 block">Dinero contado en caja</span>
+                    <p className="text-lg font-extrabold text-slate-900 mt-2">{formatCOP(kpis.entradasMostradas)}</p>
+                    <span className="text-[10px] text-emerald-700 font-semibold mt-1 block">
+                      {modoVistaCaja === 'ACUMULADO'
+                        ? `Acumulado vigente (Mes: ${formatCOP(kpis.entradasMesActivo)})`
+                        : modoVistaCaja === 'ANUAL'
+                        ? `Año ${mesCajaActivo.substring(0, 4)} (Mes: ${formatCOP(kpis.entradasMesActivo)})`
+                        : `Solo mes ${mesCajaActivo}`}
+                    </span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
@@ -2747,17 +3456,35 @@ export default function App() {
                       <span className="text-[11px] font-bold uppercase tracking-wider text-slate-500">Total Salidas Netas</span>
                       <ArrowDownRight className="w-4 h-4 text-rose-600" />
                     </div>
-                    <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.totalSalidas)}</p>
-                    <span className="text-[10px] text-slate-500 font-semibold mt-1 block">Gastos menos sobrantes devueltos</span>
+                    <p className="text-lg font-extrabold text-rose-600 mt-2">- {formatCOP(kpis.salidasMostradas)}</p>
+                    <span className="text-[10px] text-slate-500 font-semibold mt-1 block">
+                      {modoVistaCaja === 'ACUMULADO'
+                        ? `Acumulado vigente (Mes: ${formatCOP(kpis.salidasMesActivo)})`
+                        : modoVistaCaja === 'ANUAL'
+                        ? `Año ${mesCajaActivo.substring(0, 4)} (Mes: ${formatCOP(kpis.salidasMesActivo)})`
+                        : `Solo mes ${mesCajaActivo}`}
+                    </span>
                   </div>
 
-                  <div className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white">
+                  <div
+                    onClick={() => openModalSaldoInicial(mesCajaActivo)}
+                    className="bg-indigo-950 p-4 rounded-2xl shadow-md text-white cursor-pointer hover:bg-indigo-900 transition-colors"
+                    title="Clic para editar el Saldo Inicial"
+                  >
                     <div className="flex justify-between items-start">
-                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">Saldo en Caja</span>
+                      <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-200">
+                        {modoVistaCaja === 'ACUMULADO'
+                          ? 'Saldo Total en Caja'
+                          : modoVistaCaja === 'ANUAL'
+                          ? `Saldo Año ${mesCajaActivo.substring(0, 4)}`
+                          : `Saldo Mes ${mesCajaActivo}`}
+                      </span>
                       <Wallet className="w-4 h-4 text-emerald-400" />
                     </div>
                     <p className="text-xl font-extrabold text-emerald-400 mt-2">{formatCOP(kpis.saldoRealEnCaja)}</p>
-                    <span className="text-[10px] text-indigo-200 font-semibold mt-1 block">Entradas - Salidas</span>
+                    <span className="text-[10px] text-indigo-200 font-semibold mt-1 block">
+                      Inicial: {formatCOP(kpis.saldoInicialMostrado)} + Ent. - Sal.
+                    </span>
                   </div>
 
                   <div className="bg-white p-4 rounded-2xl border border-amber-200 shadow-sm">
@@ -2769,22 +3496,30 @@ export default function App() {
                     <span className="text-[10px] text-amber-800 font-semibold mt-1 block">{kpis.cantidadPendientes} entrega(s) por recibir</span>
                   </div>
 
-                  <div className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm">
+                  <div
+                    onClick={() => setTesoreroTab('CARTERA_DESCUADRES')}
+                    className="bg-white p-4 rounded-2xl border border-indigo-200 shadow-sm cursor-pointer hover:bg-indigo-50/40 transition-colors"
+                    title="Clic para ver el detalle de fiados y unidades sin vender"
+                  >
                     <div className="flex justify-between items-start">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-indigo-900">Cartera / En Calle</span>
                       <ShoppingBag className="w-4 h-4 text-indigo-600" />
                     </div>
                     <p className="text-lg font-extrabold text-indigo-900 mt-2">{formatCOP(kpis.totalCarteraYSinVender)}</p>
-                    <span className="text-[10px] text-indigo-800 font-semibold mt-1 block">Fiados y sin vender</span>
+                    <span className="text-[10px] text-indigo-800 font-semibold mt-1 block">Fiados: {formatCOP(kpis.totalPlataFiadaCalle)} • Ver detalle →</span>
                   </div>
 
-                  <div className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm">
+                  <div
+                    onClick={() => setTesoreroTab('CARTERA_DESCUADRES')}
+                    className="bg-white p-4 rounded-2xl border border-rose-200 shadow-sm cursor-pointer hover:bg-rose-50/40 transition-colors"
+                    title="Clic para ver el detalle de descuadres"
+                  >
                     <div className="flex justify-between items-start">
                       <span className="text-[11px] font-bold uppercase tracking-wider text-rose-800">Descuadre Revisión</span>
                       <AlertTriangle className="w-4 h-4 text-rose-600" />
                     </div>
                     <p className="text-lg font-extrabold text-rose-700 mt-2">{formatCOP(kpis.descuadreAcumulado)}</p>
-                    <span className="text-[10px] text-rose-800 font-semibold mt-1 block">{kpis.cantidadDescuadres} novedad(es) en arqueo</span>
+                    <span className="text-[10px] text-rose-800 font-semibold mt-1 block">{kpis.cantidadDescuadres} novedad(es) • Ver detalle →</span>
                   </div>
                 </div>
 
@@ -2800,6 +3535,21 @@ export default function App() {
                     {(kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesIncobrable) > 0 && (
                       <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
                         {kpis.cantidadPendientes + kpis.cantidadDescuadres + kpis.cantidadSolicitudesIncobrable}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setTesoreroTab('CARTERA_DESCUADRES')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      tesoreroTab === 'CARTERA_DESCUADRES' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <ShoppingBag className="w-4 h-4 text-amber-400" />
+                    <span>Descuadres y Saldo en Calle</span>
+                    {(kpis.cantidadDescuadres + kpis.listaCarteraCalle.length) > 0 && (
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-rose-500 text-white font-extrabold">
+                        {kpis.cantidadDescuadres + kpis.listaCarteraCalle.length}
                       </span>
                     )}
                   </button>
@@ -2824,6 +3574,121 @@ export default function App() {
                     <span>Libro Único Completo ({(movimientos || []).length})</span>
                   </button>
                 </div>
+
+                {tesoreroTab === 'CARTERA_DESCUADRES' && (
+                  <div className="space-y-6">
+                    <div className="bg-white rounded-2xl shadow-sm border border-rose-200 p-6 space-y-4">
+                      <div className="flex items-center justify-between">
+                        <div>
+                          <h3 className="text-base font-bold text-rose-950 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5 text-rose-600" />
+                            Descuadres en Arqueo Pendientes de Revisión ({kpis.listaDescuadres.length})
+                          </h3>
+                          <p className="text-xs text-slate-500">Diferencias detectadas entre lo reportado por el recaudador y el efectivo físico contado en caja.</p>
+                        </div>
+                        <span className="px-3 py-1 rounded-xl bg-rose-50 text-rose-800 border border-rose-200 text-xs font-extrabold">
+                          Total Descuadre: {formatCOP(kpis.descuadreAcumulado)}
+                        </span>
+                      </div>
+
+                      {kpis.listaDescuadres.length === 0 ? (
+                        <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          <p className="text-xs text-slate-500 font-semibold">No hay descuadres pendientes. Todos los arqueos están cuadrados.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-3">
+                          {kpis.listaDescuadres.map((d) => (
+                            <div key={d.id} className="p-4 rounded-xl bg-rose-50/50 border border-rose-200 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                              <div>
+                                <div className="flex items-center gap-2">
+                                  <span className="font-mono font-bold text-rose-900 bg-rose-100 px-2 py-0.5 rounded text-xs">{d.id}</span>
+                                  <span className="font-bold text-slate-900 text-sm">{d.actividad}</span>
+                                  <span className="text-xs text-slate-500">• {d.fecha} • Responsable: <strong>{d.responsable}</strong></span>
+                                </div>
+                                <p className="text-xs text-slate-700 mt-1">
+                                  Reportado: <strong>{formatCOP(d.montoReportado)}</strong> | Contado en Caja: <strong>{formatCOP(d.montoRecibido)}</strong> | Diferencia: <strong className="text-rose-700">{formatCOP(d.diferencia)}</strong>
+                                </p>
+                                {d.notaTesorero && <p className="text-[11px] text-rose-900 italic mt-1">{d.notaTesorero}</p>}
+                              </div>
+                              {!esMesCerrado(d.fecha) && (
+                                <button
+                                  type="button"
+                                  onClick={() => handleAprobarAjusteDescuadre(d)}
+                                  className="px-4 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs shrink-0"
+                                >
+                                  Aprobar Ajuste y Cerrar
+                                </button>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-indigo-200 p-6 space-y-4">
+                      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                        <div>
+                          <h3 className="text-base font-bold text-indigo-950 flex items-center gap-2">
+                            <ShoppingBag className="w-5 h-5 text-indigo-600" />
+                            Detalle de Cartera Fiada y Mercancía Sin Vender en Calle
+                          </h3>
+                          <p className="text-xs text-slate-500">Desglose por actividad, recaudador responsable y lista individual de deudores.</p>
+                        </div>
+                        <div className="flex items-center gap-2 text-xs font-extrabold">
+                          <span className="px-3 py-1 rounded-xl bg-rose-50 text-rose-800 border border-rose-200">
+                            Fiados: {formatCOP(kpis.totalPlataFiadaCalle)}
+                          </span>
+                          <span className="px-3 py-1 rounded-xl bg-slate-100 text-slate-800 border border-slate-200">
+                            Sin Vender: {formatCOP(kpis.totalPlataSinVenderCalle)}
+                          </span>
+                        </div>
+                      </div>
+
+                      {kpis.listaCarteraCalle.length === 0 ? (
+                        <div className="text-center py-8 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          <p className="text-xs text-slate-500 font-semibold">No hay saldos fiados ni unidades pendientes por vender en calle.</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-4">
+                          {kpis.listaCarteraCalle.map((act) => (
+                            <div key={act.id} className="p-4 rounded-xl bg-slate-50 border border-slate-200 space-y-3">
+                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-slate-200 pb-2">
+                                <div>
+                                  <span className="font-mono font-bold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded text-xs mr-2">{act.id}</span>
+                                  <span className="font-bold text-slate-900 text-sm">{act.actividad}</span>
+                                  <span className="text-xs text-slate-500 ml-2">({act.fecha} • Recaudador: <strong>{act.responsable}</strong>)</span>
+                                </div>
+                                <div className="text-xs font-bold">
+                                  {act.plataFiada > 0 && <span className="text-rose-700 mr-3">Por cobrar ({act.unidadesFiadas} unid.): {formatCOP(act.plataFiada)}</span>}
+                                  {act.plataSinVender > 0 && <span className="text-slate-700">Sin vender ({act.unidadesSinVender} unid.): {formatCOP(act.plataSinVender)}</span>}
+                                </div>
+                              </div>
+
+                              {act.deudores.length > 0 && (
+                                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
+                                  {act.deudores.map((deudor) => (
+                                    <div key={deudor.id} className="bg-white p-2.5 rounded-lg border border-slate-200 text-xs flex items-center justify-between">
+                                      <div>
+                                        <span className="font-bold text-slate-800 block">{deudor.nombre}</span>
+                                        <span className="text-[11px] text-slate-500">{deudor.cantidad} unid. • Abonó: {formatCOP(deudor.abonado)}</span>
+                                      </div>
+                                      <div className="text-right">
+                                        <span className="font-extrabold text-rose-700 block">{formatCOP(deudor.saldoPendiente)}</span>
+                                        {deudor.solicitudIncobrable && (
+                                          <span className="text-[9px] font-bold bg-amber-100 text-amber-900 px-1.5 py-0.5 rounded">Solicitó baja</span>
+                                        )}
+                                      </div>
+                                    </div>
+                                  ))}
+                                </div>
+                              )}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                )}
 
                 {tesoreroTab === 'BANDEJA' && (
                   <div className="space-y-6">
@@ -3031,7 +3896,10 @@ export default function App() {
                       </div>
                       <div>
                         <h3 className="text-base font-bold text-slate-900">Registrar Salida de Caja / Egreso</h3>
-                        <p className="text-xs text-slate-500">Registra compras, servicios públicos, ayudas o gastos con opción de registrar sobrante devuelto.</p>
+                        <p className="text-xs text-slate-500">
+                          Registra compras, servicios públicos o ayudas. Egresos iguales o superiores a{' '}
+                          <strong>{formatCOP(configuracionApp.umbralEgresoMayor || 0)}</strong> requieren Visto Bueno Pastoral.
+                        </p>
                       </div>
                     </div>
 
@@ -3061,7 +3929,7 @@ export default function App() {
                             onChange={(e) => setEgrCategoria(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
                           >
-                            {CATEGORIAS_EGRESO.map((cat) => (
+                            {categoriasDisponibles.map((cat) => (
                               <option key={cat} value={cat}>{cat}</option>
                             ))}
                           </select>
@@ -3329,25 +4197,28 @@ export default function App() {
           </>
         )}
 
-        {activeRole === 'ADMINISTRADOR' && (
+        {/* ================= ROL 3: PASTOR (AUDITORÍA, CIERRES, VISTO BUENO, NOTAS PASTORALES) ================= */}
+        {activeRole === 'PASTOR' && (
           <>
-            {!usuarioLogueadoAdmin ? (
+            {!usuarioLogueadoPastor ? (
               <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
                 <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <ShieldAlert className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Panel Exclusivo Pastor / Administrador</h2>
-                <p className="text-sm text-slate-500 mt-1">Acceso restringido para auditoría, cierres de mes y permisos de borrado.</p>
+                <h2 className="text-xl font-bold text-slate-900">Despacho Pastoral & Auditoría</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Autoridad exclusiva para Auditoría, Cierre de Mes/Año, Visto Bueno de Egresos Mayores y Notas Pastorales.
+                </p>
 
-                <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
+                <form onSubmit={handlePastorLogin} className="mt-6 space-y-4 text-left">
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Administrador</label>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Pastoral</label>
                     <input
                       type="text"
                       required
-                      placeholder="Ej. admin"
-                      value={adminUserLoginInput}
-                      onChange={(e) => setAdminUserLoginInput(e.target.value)}
+                      placeholder="Ej. pastor"
+                      value={pastorUserLoginInput}
+                      onChange={(e) => setPastorUserLoginInput(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                       autoFocus
                     />
@@ -3358,20 +4229,20 @@ export default function App() {
                       type="password"
                       required
                       placeholder="••••"
-                      value={adminPassLoginInput}
-                      onChange={(e) => setAdminPassLoginInput(e.target.value)}
+                      value={pastorPassLoginInput}
+                      onChange={(e) => setPastorPassLoginInput(e.target.value)}
                       className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-amber-500 font-medium"
                     />
                   </div>
-                  {adminLoginError && (
-                    <p className="text-xs text-rose-600 font-semibold">{adminLoginError}</p>
+                  {pastorLoginError && (
+                    <p className="text-xs text-rose-600 font-semibold">{pastorLoginError}</p>
                   )}
 
                   <button
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
                   >
-                    Entrar como Pastor / Admin
+                    Ingresar como Pastor
                   </button>
                 </form>
               </div>
@@ -3381,62 +4252,67 @@ export default function App() {
                   <div className="flex items-center gap-2.5">
                     <span className="w-3 h-3 rounded-full bg-amber-400 animate-ping"></span>
                     <span className="text-sm font-bold">
-                      Sesión Pastor / Administrador Activa: <span className="text-amber-300 underline">{usuarioLogueadoAdmin.nombre}</span>
+                      Sesión Pastoral Activa: <span className="text-amber-300 underline">{usuarioLogueadoPastor.nombre}</span>
                     </span>
                   </div>
                   <button
-                    onClick={() => setUsuarioLogueadoAdmin(null)}
+                    onClick={() => setUsuarioLogueadoPastor(null)}
                     className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
                   >
                     <Lock className="w-3.5 h-3.5" />
-                    Cerrar Sesión Admin
+                    Cerrar Sesión Pastoral
                   </button>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Saldo Real en Caja</span>
+                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Saldo Total en Caja</span>
                     <span className="text-xl font-extrabold text-indigo-900 mt-1 block">{formatCOP(kpis.saldoRealEnCaja)}</span>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Total Entradas</span>
-                    <span className="text-xl font-extrabold text-emerald-700 mt-1 block">{formatCOP(kpis.totalEntradasVerificadas)}</span>
+                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Entradas Vigentes</span>
+                    <span className="text-xl font-extrabold text-emerald-700 mt-1 block">{formatCOP(kpis.entradasMostradas)}</span>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Total Salidas Netas</span>
-                    <span className="text-xl font-extrabold text-rose-600 mt-1 block">{formatCOP(kpis.totalSalidas)}</span>
+                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Salidas Netas Vigentes</span>
+                    <span className="text-xl font-extrabold text-rose-600 mt-1 block">{formatCOP(kpis.salidasMostradas)}</span>
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Cierres Realizados</span>
-                    <span className="text-xl font-extrabold text-indigo-950 mt-1 block">{(cierresMensuales || []).length} meses</span>
+                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Cierres Ejecutados</span>
+                    <span className="text-xl font-extrabold text-indigo-950 mt-1 block">{(cierresMensuales || []).length} cierre(s)</span>
                   </div>
                 </div>
 
                 <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
                   <button
-                    onClick={() => setAdminTab('CONFIG')}
+                    onClick={() => setPastorTab('AUDITORIA')}
                     className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'CONFIG' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Settings className="w-4 h-4 text-emerald-400" />
-                    <span>Configuración de la App & Logo</span>
-                  </button>
-
-                  <button
-                    onClick={() => setAdminTab('AUDITORIA')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'AUDITORIA' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                      pastorTab === 'AUDITORIA' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
                     <Calculator className="w-4 h-4 text-amber-400" />
-                    <span>Auditoría & Cierre de Mes (Pastor)</span>
+                    <span>Auditoría y Cierres (Mensual / Anual)</span>
                   </button>
 
                   <button
-                    onClick={() => setAdminTab('BORRADOS')}
+                    onClick={() => setPastorTab('VISTO_BUENO')}
                     className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'BORRADOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                      pastorTab === 'VISTO_BUENO' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <ShieldCheck className="w-4 h-4 text-emerald-400" />
+                    <span>Visto Bueno Egresos Mayores</span>
+                    {kpis.cantidadEgresosMayoresPendientes > 0 && (
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold animate-pulse">
+                        {kpis.cantidadEgresosMayoresPendientes}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setPastorTab('BORRADOS')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      pastorTab === 'BORRADOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
                     <Trash2 className="w-4 h-4 text-rose-400" />
@@ -3449,136 +4325,118 @@ export default function App() {
                   </button>
 
                   <button
-                    onClick={() => setAdminTab('USUARIOS')}
+                    onClick={() => setPastorTab('NOTAS')}
                     className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'USUARIOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                      pastorTab === 'NOTAS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <span>Gestión de Usuarios y Claves</span>
-                    {(usuariosSistema || []).some((u) => u && u.solicitudClave) && (
-                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
-                        {(usuariosSistema || []).filter((u) => u && u.solicitudClave).length}
-                      </span>
-                    )}
+                    <MessageSquarePlus className="w-4 h-4 text-sky-400" />
+                    <span>Notas Pastorales ({(configuracionApp.notasPastorales || []).length})</span>
                   </button>
                 </div>
 
-                {adminTab === 'CONFIG' && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                    <div className="max-w-xl mx-auto space-y-6">
-                      <div className="text-center">
-                        <div className="w-16 h-16 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner mb-3">
-                          <Settings className="w-8 h-8" />
-                        </div>
-                        <h3 className="text-xl font-bold text-slate-900">Personalizar Nombre, Iglesia y Logo</h3>
-                        <p className="text-sm text-slate-500 mt-1">
-                          Modifica el nombre de la iglesia, el título superior y la URL del logotipo.
-                        </p>
-                      </div>
-
-                      <form onSubmit={handleGuardarConfiguracionApp} className="space-y-4 pt-2">
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Oficial de la Iglesia (Para las Actas)</label>
-                          <input
-                            type="text"
-                            required
-                            value={adminConfigIglesia}
-                            onChange={(e) => setAdminConfigIglesia(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título de la Plataforma / Header</label>
-                          <input
-                            type="text"
-                            required
-                            value={adminConfigTitulo}
-                            onChange={(e) => setAdminConfigTitulo(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Lema</label>
-                          <input
-                            type="text"
-                            required
-                            value={adminConfigSubtitulo}
-                            onChange={(e) => setAdminConfigSubtitulo(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                          />
-                        </div>
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL del Logo (Opcional)</label>
-                          <input
-                            type="url"
-                            placeholder="https://ejemplo.com/logo-iglesia.png"
-                            value={adminConfigLogoUrl}
-                            onChange={(e) => setAdminConfigLogoUrl(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                          />
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full py-3.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
-                        >
-                          Guardar Cambios de Identidad
-                        </button>
-                      </form>
-                    </div>
-                  </div>
-                )}
-
-                {adminTab === 'AUDITORIA' && (
+                {pastorTab === 'AUDITORIA' && (
                   <div className="space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                      <div className="max-w-xl mx-auto space-y-6 text-center">
-                        <div className="w-16 h-16 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                          <Calendar className="w-8 h-8" />
-                        </div>
-                        <div>
-                          <h3 className="text-xl font-bold text-slate-900">Ejecutar Cierre de Mes Oficial (Pastor)</h3>
-                          <p className="text-sm text-slate-500 mt-1">
-                            Selecciona el mes a cerrar. Al cerrarlo, el sistema bloqueará automáticamente todas las modificaciones de ese período a menos que el Pastor lo vuelva a abrir.
-                          </p>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      {/* TARJETA 1: CIERRE MENSUAL (BLOQUEA EDICIONES DEL MES, MANTIENE ACUMULADOS INTACTOS) */}
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between">
+                        <div className="space-y-4 text-center">
+                          <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                            <Calendar className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900">1. Cierre Mensual (Auditoría de Período)</h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Sella y bloquea las modificaciones del mes seleccionado para emitir su acta. <strong>No reinicia a cero</strong> las entradas, salidas ni el saldo acumulado de caja.
+                            </p>
+                          </div>
                         </div>
 
-                        <form onSubmit={handleEjecutarCierreDeMes} className="space-y-4 pt-2">
+                        <form onSubmit={handleEjecutarCierreDeMes} className="space-y-4 pt-4 mt-4 border-t border-slate-100">
                           <div className="flex items-center justify-center gap-3">
-                            <label className="text-xs font-bold uppercase text-slate-700">Mes a Cerrar (AAAA-MM):</label>
+                            <label className="text-xs font-bold uppercase text-slate-700">Mes a Cerrar:</label>
                             <input
                               type="month"
                               required
                               value={mesCierreInput}
                               onChange={(e) => setMesCierreInput(e.target.value)}
-                              className="px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold bg-white"
+                              className="px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-extrabold bg-white"
                             />
                           </div>
 
                           <button
                             type="submit"
-                            className="w-full py-3.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-md transition-all"
+                            className="w-full py-3 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md transition-all"
                           >
-                            Generar Auditoría y Sellar Cierre de Mes Oficial
+                            Sellar Cierre de Mes (Sin Reiniciar Caja)
+                          </button>
+                        </form>
+                      </div>
+
+                      {/* TARJETA 2: CIERRE ANUAL AUTORIZADO POR EL PASTOR (REINICIA ENTRADAS Y SALIDAS A CERO) */}
+                      <div className="bg-white rounded-2xl shadow-sm border-2 border-indigo-900/20 p-6 flex flex-col justify-between">
+                        <div className="space-y-4 text-center">
+                          <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                            <ShieldCheck className="w-7 h-7" />
+                          </div>
+                          <div>
+                            <h3 className="text-lg font-bold text-slate-900">2. Cierre Anual / Reinicio de Vigencia (Pastor)</h3>
+                            <p className="text-xs text-slate-500 mt-1">
+                              Autorización exclusiva del Pastor para cerrar el año fiscal y <strong>volver las Entradas y Salidas a $0</strong> para iniciar el nuevo año ({Number(anioCierreInput || 2026) + 1}).
+                            </p>
+                          </div>
+                        </div>
+
+                        <form onSubmit={handleEjecutarCierreAnualPastor} className="space-y-3 pt-4 mt-4 border-t border-slate-100">
+                          <div className="flex items-center justify-center gap-3">
+                            <label className="text-xs font-bold uppercase text-slate-700">Año Fiscal a Cerrar:</label>
+                            <input
+                              type="number"
+                              min="2020"
+                              max="2099"
+                              required
+                              value={anioCierreInput}
+                              onChange={(e) => setAnioCierreInput(e.target.value)}
+                              className="w-28 px-3.5 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-center bg-white"
+                            />
+                          </div>
+
+                          <label className="flex items-center justify-center gap-2 text-xs font-semibold text-slate-700 cursor-pointer bg-slate-50 p-2 rounded-xl border border-slate-200">
+                            <input
+                              type="checkbox"
+                              checked={trasladarSaldoAlNuevoAnio}
+                              onChange={(e) => setTrasladarSaldoAlNuevoAnio(e.target.checked)}
+                              className="rounded text-indigo-950"
+                            />
+                            <span>Conservar el Saldo Final en Caja como Saldo Inicial del año {Number(anioCierreInput || 2026) + 1}</span>
+                          </label>
+
+                          <button
+                            type="submit"
+                            className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md transition-all"
+                          >
+                            Autorizar Cierre Anual y Reiniciar Contadores a $0
                           </button>
                         </form>
                       </div>
                     </div>
 
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                      <h3 className="text-base font-bold text-slate-900">Historial de Cierres Mensuales y Actas Pastorales</h3>
+                      <h3 className="text-base font-bold text-slate-900">Historial de Cierres y Actas Pastorales</h3>
                       <div className="space-y-4">
                         {(cierresMensuales || []).length === 0 ? (
                           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm text-slate-500 font-semibold">No hay cierres mensuales ejecutados todavía.</p>
+                            <p className="text-sm text-slate-500 font-semibold">No hay cierres ejecutados todavía.</p>
                           </div>
                         ) : (
                           (cierresMensuales || []).map((c) => {
                             if (!c) return null;
                             const esActaActiva = actaAImprimirId === c.id || (!actaAImprimirId && cierresMensuales[0]?.id === c.id);
                             const nombreIglesiaActa = configuracionApp.nombreIglesia || 'Iglesia Central Comunitaria';
-                            const textoPorDefecto = `Durante el mes de ${c.mes}, en la ${nombreIglesiaActa}, hemos llevado cuentas claras y transparentes para la gloria de Dios. Revisamos un total de ${c.cantidadMovimientos} movimientos entre ofrendas y gastos, confirmando un total recibido de ${formatCOP(c.totalEntradas)} y un total de gastos y salidas de ${formatCOP(c.totalSalidas)}. Esto nos deja un balance neto de ${formatCOP(c.balanceNeto)} y un dinero real disponible en caja al finalizar el mes por ${formatCOP(c.saldoCajaFinal)}. Damos gracias a Dios por el apoyo y la fidelidad de todos.`;
+                            const textoPorDefecto =
+                              c.tipoCierre === 'ANUAL'
+                                ? `Al cierre del año fiscal ${c.anio}, en la ${nombreIglesiaActa}, auditamos un total de ${c.cantidadMovimientos} movimientos, confirmando entradas por ${formatCOP(c.totalEntradas)} y salidas netas por ${formatCOP(c.totalSalidas)}, dejando un saldo final en caja de ${formatCOP(c.saldoCajaFinal)}. Con autorización pastoral se reinician los contadores anuales en $0 trasladando ${formatCOP(c.saldoTrasladado || 0)} como saldo inicial del nuevo año.`
+                                : `Durante el mes de ${c.mes}, en la ${nombreIglesiaActa}, iniciamos con un saldo inicial de ${formatCOP(c.saldoInicialMes || 0)} y auditamos ${c.cantidadMovimientos} movimientos, confirmando entradas por ${formatCOP(c.totalEntradas)} y salidas netas por ${formatCOP(c.totalSalidas)}. Esto deja un saldo final disponible en caja de ${formatCOP(c.saldoCajaFinal)}.`;
                             const textoActaMostrado = c.textoPersonalizado !== undefined ? c.textoPersonalizado : textoPorDefecto;
 
                             return (
@@ -3591,13 +4449,13 @@ export default function App() {
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                                   <div>
                                     <span className="text-xs font-mono font-bold bg-indigo-900 text-white px-2.5 py-1 rounded-md">
-                                      ACTA DE CIERRE MENSUAL: {c.mes}
+                                      {c.tipoCierre === 'ANUAL' ? `ACTA DE CIERRE ANUAL: ${c.anio}` : `ACTA DE CIERRE MENSUAL: ${c.mes}`}
                                     </span>
-                                    <h4 className="font-extrabold text-slate-900 text-base mt-2">{nombreIglesiaActa} - Resumen de Caja y Tesorería</h4>
+                                    <h4 className="font-extrabold text-slate-900 text-base mt-2">{nombreIglesiaActa} - Resumen Oficial de Tesorería</h4>
                                   </div>
                                   <div className="text-right text-xs text-slate-500">
                                     <span>Fecha de corte: <strong>{c.fechaCierre}</strong></span>
-                                    <span className="block">Responsable: <strong>{c.responsableCierre}</strong></span>
+                                    <span className="block">Pastor: <strong>{c.responsableCierre}</strong></span>
                                   </div>
                                 </div>
 
@@ -3645,7 +4503,11 @@ export default function App() {
                                   </div>
                                 )}
 
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                                <div className="grid grid-cols-2 sm:grid-cols-5 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                                  <div>
+                                    <span className="text-slate-400 block">Saldo Inicial</span>
+                                    <span className="font-extrabold text-slate-800 text-sm">{formatCOP(c.saldoInicialMes || 0)}</span>
+                                  </div>
                                   <div>
                                     <span className="text-slate-400 block">Total Entradas</span>
                                     <span className="font-extrabold text-emerald-700 text-sm">{formatCOP(c.totalEntradas)}</span>
@@ -3655,7 +4517,7 @@ export default function App() {
                                     <span className="font-extrabold text-rose-600 text-sm">{formatCOP(c.totalSalidas)}</span>
                                   </div>
                                   <div>
-                                    <span className="text-slate-400 block">Balance Neto</span>
+                                    <span className="text-slate-400 block">Balance Período</span>
                                     <span className="font-extrabold text-indigo-900 text-sm">{formatCOP(c.balanceNeto)}</span>
                                   </div>
                                   <div>
@@ -3667,7 +4529,7 @@ export default function App() {
                                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 mt-6 border-t border-slate-200 text-center">
                                   <div className="space-y-2">
                                     <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
-                                    <p className="font-bold text-xs text-slate-800">Firma del Pastor / Administrador</p>
+                                    <p className="font-bold text-xs text-slate-800">Firma del Pastor</p>
                                     <p className="text-[11px] text-slate-500">{c.responsableCierre}</p>
                                   </div>
                                   <div className="space-y-2">
@@ -3684,7 +4546,7 @@ export default function App() {
                                     className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
                                   >
                                     <Unlock className="w-3.5 h-3.5" />
-                                    Reabrir Mes (Permitir Cambios)
+                                    Reabrir Período (Permitir Cambios)
                                   </button>
 
                                   <button
@@ -3710,7 +4572,69 @@ export default function App() {
                   </div>
                 )}
 
-                {adminTab === 'BORRADOS' && (
+                {pastorTab === 'VISTO_BUENO' && (
+                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                    <div>
+                      <h3 className="text-base font-bold text-slate-900">Visto Bueno Pastoral para Egresos Mayores</h3>
+                      <p className="text-xs text-slate-500">
+                        Salidas de caja iguales o superiores a <strong>{formatCOP(configuracionApp.umbralEgresoMayor || 0)}</strong> registradas por Tesorería.
+                      </p>
+                    </div>
+
+                    <div className="space-y-3">
+                      {(movimientos || []).filter((m) => m && m.tipo === 'EGRESO' && m.vistoBuenoPastoral && m.vistoBuenoPastoral !== 'NO_REQUIERE').length === 0 ? (
+                        <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          <p className="text-sm text-slate-500 font-semibold">No hay egresos mayores registrados para revisión pastoral.</p>
+                        </div>
+                      ) : (
+                        (movimientos || [])
+                          .filter((m) => m && m.tipo === 'EGRESO' && m.vistoBuenoPastoral && m.vistoBuenoPastoral !== 'NO_REQUIERE')
+                          .map((eg) => {
+                            const neto = Math.max(0, (Number(eg.montoSalida) || 0) - (Number(eg.montoSobranteDevuelto) || 0));
+                            return (
+                              <div key={eg.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-mono font-bold text-indigo-900 bg-indigo-100 px-2 py-0.5 rounded text-xs">{eg.id}</span>
+                                    <span className="font-bold text-slate-900 text-sm">{eg.actividad}</span>
+                                    <span className="text-xs text-slate-500">• {eg.fecha}</span>
+                                    <span className="text-sm font-extrabold text-rose-700">{formatCOP(neto)}</span>
+                                  </div>
+                                  <p className="text-xs text-slate-700 mt-1">{eg.descripcion}</p>
+                                  <p className="text-[11px] text-slate-500 mt-0.5">Responsable: <strong>{eg.responsable}</strong></p>
+                                </div>
+
+                                <div className="flex items-center gap-2 shrink-0">
+                                  {eg.vistoBuenoPastoral === 'PENDIENTE' ? (
+                                    <>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleResolverVistoBuenoEgresoMayor(eg, true)}
+                                        className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
+                                      >
+                                        Dar Visto Bueno ✓
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => handleResolverVistoBuenoEgresoMayor(eg, false)}
+                                        className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
+                                      >
+                                        Rechazar
+                                      </button>
+                                    </>
+                                  ) : (
+                                    renderEstadoBadge(eg)
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {pastorTab === 'BORRADOS' && (
                   <div className="space-y-6">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
                       <h3 className="text-base font-bold text-slate-900">Autorización de Correcciones en Libro Único</h3>
@@ -3741,14 +4665,14 @@ export default function App() {
                                 <div className="flex items-center gap-2 shrink-0">
                                   <button
                                     type="button"
-                                    onClick={() => handleResolverEdicionLibroAdmin(item, true)}
+                                    onClick={() => handleResolverEdicionLibroPastor(item, true)}
                                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
                                   >
                                     Autorizar Corrección ✓
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleResolverEdicionLibroAdmin(item, false)}
+                                    onClick={() => handleResolverEdicionLibroPastor(item, false)}
                                     className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
                                   >
                                     Denegar
@@ -3762,7 +4686,7 @@ export default function App() {
 
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
                       <h3 className="text-base font-bold text-slate-900">Autorización de Borrado en Libro Único</h3>
-                      <p className="text-xs text-slate-500">Tesorería solo puede borrar registros del libro si el Pastor / Administrador lo autoriza previamente.</p>
+                      <p className="text-xs text-slate-500">Tesorería solo puede borrar registros del libro si el Pastor lo autoriza previamente.</p>
 
                       <div className="space-y-3">
                         {(movimientos || []).filter((m) => m && m.solicitudBorrado && !m.borradoAutorizado).length === 0 ? (
@@ -3789,14 +4713,14 @@ export default function App() {
                                 <div className="flex items-center gap-2 shrink-0">
                                   <button
                                     type="button"
-                                    onClick={() => handleResolverBorradoAdmin(item, true)}
+                                    onClick={() => handleResolverBorradoPastor(item, true)}
                                     className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
                                   >
                                     Autorizar Borrado ✓
                                   </button>
                                   <button
                                     type="button"
-                                    onClick={() => handleResolverBorradoAdmin(item, false)}
+                                    onClick={() => handleResolverBorradoPastor(item, false)}
                                     className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
                                   >
                                     Denegar
@@ -3810,141 +4734,654 @@ export default function App() {
                   </div>
                 )}
 
-                {adminTab === 'USUARIOS' && (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-bold text-slate-900 mb-4">Solicitudes de Clave y Restablecimiento</h3>
-                      {(usuariosSistema || []).some((u) => u && u.solicitudClave) ? (
-                        <div className="space-y-3">
-                          {(usuariosSistema || [])
-                            .filter((u) => u && u.solicitudClave)
-                            .map((usr) => (
-                              <div key={usr.id} className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between gap-4">
-                                <div>
-                                  <span className="font-bold text-amber-950 text-sm">El usuario <strong className="underline">{usr.nombre}</strong> (usuario: <em>{usr.usuario}</em>) solicita restablecer su contraseña.</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAutorizarCambioClave(usr.id, true)}
-                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs"
-                                  >
-                                    Autorizar Cambio ✓
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAutorizarCambioClave(usr.id, false)}
-                                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold"
-                                  >
-                                    Rechazar
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
+                {pastorTab === 'NOTAS' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                      <h3 className="text-base font-bold text-slate-900 mb-1">Publicar Nota Pastoral para Tesorería</h3>
+                      <p className="text-xs text-slate-500 mb-4">Estas directrices u observaciones aparecerán destacadas en el tablero de Tesorería.</p>
+
+                      <form onSubmit={handleAgregarNotaPastoral} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Prioridad</label>
+                          <select
+                            value={nuevaNotaPastoralPrioridad}
+                            onChange={(e) => setNuevaNotaPastoralPrioridad(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                          >
+                            <option value="INFORMATIVA">Informativa / Directriz</option>
+                            <option value="URGENTE">Urgente / Prioritaria</option>
+                          </select>
                         </div>
-                      ) : (
-                        <p className="text-xs text-slate-500">No hay solicitudes de clave pendientes.</p>
-                      )}
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contenido de la Nota</label>
+                          <textarea
+                            rows="4"
+                            required
+                            placeholder="Ej. Reservar el 20% de los recaudos de este mes para el fondo de misiones..."
+                            value={nuevaNotaPastoralTexto}
+                            onChange={(e) => setNuevaNotaPastoralTexto(e.target.value)}
+                            className="w-full p-3.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          ></textarea>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
+                        >
+                          Publicar Nota Pastoral
+                        </button>
+                      </form>
                     </div>
 
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                        <h3 className="text-base font-bold text-slate-900 mb-4">Crear Nuevo Usuario</h3>
-                        <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. Hno. Juan Pérez"
-                              value={nuevoUserNombre}
-                              onChange={(e) => setNuevoUserNombre(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Alias de Usuario</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. juan"
-                              value={nuevoUserAlias}
-                              onChange={(e) => setNuevoUserAlias(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Inicial</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="••••"
-                              value={nuevoUserClave}
-                              onChange={(e) => setNuevoUserClave(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol en el Sistema</label>
-                            <select
-                              value={nuevoUserRol}
-                              onChange={(e) => setNuevoUserRol(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-3">
+                      <h3 className="text-base font-bold text-slate-900">Notas Pastorales Publicadas</h3>
+                      {(configuracionApp.notasPastorales || []).length === 0 ? (
+                        <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                          <p className="text-sm text-slate-500 font-semibold">No hay notas pastorales publicadas actualmente.</p>
+                        </div>
+                      ) : (
+                        (configuracionApp.notasPastorales || []).map((nota) => (
+                          <div key={nota.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 flex items-start justify-between gap-3">
+                            <div>
+                              <div className="flex items-center gap-2 mb-1">
+                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                  nota.prioridad === 'URGENTE' ? 'bg-rose-100 text-rose-800' : 'bg-amber-200 text-amber-950'
+                                }`}>
+                                  {nota.prioridad}
+                                </span>
+                                <span className="text-xs text-slate-500">{nota.fecha} • Por: <strong>{nota.autor}</strong></span>
+                              </div>
+                              <p className="text-sm text-slate-800 font-medium">{nota.contenido}</p>
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => handleEliminarNotaPastoral(nota.id)}
+                              className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
+                              title="Eliminar nota"
                             >
-                              <option value="RECAUDADOR">Recaudador</option>
-                              <option value="TESORERO">Tesorería</option>
-                              <option value="ADMINISTRADOR">Pastor / Administrador</option>
-                            </select>
+                              <Trash2 className="w-4 h-4" />
+                            </button>
                           </div>
+                        ))
+                      )}
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </>
+        )}
+
+        {/* ================= ROL 4: ADMINISTRADOR (CONFIGURACIÓN, USUARIOS Y RESPALDO JSON) ================= */}
+        {activeRole === 'ADMINISTRADOR' && (
+          <>
+            {!usuarioLogueadoAdmin ? (
+              <div className="max-w-md mx-auto mt-16 bg-white rounded-2xl shadow-xl border border-slate-200 p-8 text-center">
+                <div className="w-14 h-14 bg-sky-100 text-sky-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
+                  <Settings className="w-8 h-8" />
+                </div>
+                <h2 className="text-xl font-bold text-slate-900">Panel Exclusivo Administrador</h2>
+                <p className="text-sm text-slate-500 mt-1">
+                  Gestión de configuración general, creación/edición directa de usuarios y respaldo/restauración JSON.
+                </p>
+
+                <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Administrador</label>
+                    <input
+                      type="text"
+                      required
+                      placeholder="Ej. admin"
+                      value={adminUserLoginInput}
+                      onChange={(e) => setAdminUserLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+                      autoFocus
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña</label>
+                    <input
+                      type="password"
+                      required
+                      placeholder="••••"
+                      value={adminPassLoginInput}
+                      onChange={(e) => setAdminPassLoginInput(e.target.value)}
+                      className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white outline-none focus:ring-2 focus:ring-sky-500 font-medium"
+                    />
+                  </div>
+                  {adminLoginError && (
+                    <p className="text-xs text-rose-600 font-semibold">{adminLoginError}</p>
+                  )}
+
+                  <button
+                    type="submit"
+                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
+                  >
+                    Entrar como Administrador
+                  </button>
+                </form>
+              </div>
+            ) : (
+              <div className="space-y-6">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-900 shadow-md">
+                  <div className="flex items-center gap-2.5">
+                    <span className="w-3 h-3 rounded-full bg-sky-400 animate-ping"></span>
+                    <span className="text-sm font-bold">
+                      Sesión Administrador Activa: <span className="text-sky-300 underline">{usuarioLogueadoAdmin.nombre}</span>
+                    </span>
+                  </div>
+                  <button
+                    onClick={() => setUsuarioLogueadoAdmin(null)}
+                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
+                  >
+                    <Lock className="w-3.5 h-3.5" />
+                    Cerrar Sesión Admin
+                  </button>
+                </div>
+
+                <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
+                  <button
+                    onClick={() => setAdminTab('CONFIG')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      adminTab === 'CONFIG' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <Settings className="w-4 h-4 text-emerald-400" />
+                    <span>Configuración General & Saldo Base</span>
+                  </button>
+
+                  <button
+                    onClick={() => setAdminTab('USUARIOS')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      adminTab === 'USUARIOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <Users className="w-4 h-4 text-sky-400" />
+                    <span>Gestión Directa de Usuarios</span>
+                    {alertasAdmin > 0 && (
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
+                        {alertasAdmin}
+                      </span>
+                    )}
+                  </button>
+
+                  <button
+                    onClick={() => setAdminTab('RESPALDO')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      adminTab === 'RESPALDO' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <Database className="w-4 h-4 text-amber-400" />
+                    <span>Respaldo / Restauración JSON</span>
+                  </button>
+                </div>
+
+                {adminTab === 'CONFIG' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+                      <div className="space-y-6">
+                        <div className="text-center">
+                          <div className="w-16 h-16 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner mb-3">
+                            <Settings className="w-8 h-8" />
+                          </div>
+                          <h3 className="text-xl font-bold text-slate-900">Configuración General del Sistema</h3>
+                          <p className="text-sm text-slate-500 mt-1">
+                            Administra la identidad institucional, el saldo inicial base del sistema y el umbral de egresos mayores.
+                          </p>
+                        </div>
+
+                        <form onSubmit={handleGuardarConfiguracionApp} className="space-y-4 pt-2">
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Oficial de la Iglesia (Para las Actas)</label>
+                            <input
+                              type="text"
+                              required
+                              value={adminConfigIglesia}
+                              onChange={(e) => setAdminConfigIglesia(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título de la Plataforma / Header</label>
+                            <input
+                              type="text"
+                              required
+                              value={adminConfigTitulo}
+                              onChange={(e) => setAdminConfigTitulo(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Lema</label>
+                            <input
+                              type="text"
+                              required
+                              value={adminConfigSubtitulo}
+                              onChange={(e) => setAdminConfigSubtitulo(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL del Logo (Opcional)</label>
+                            <input
+                              type="url"
+                              placeholder="https://ejemplo.com/logo-iglesia.png"
+                              value={adminConfigLogoUrl}
+                              onChange={(e) => setAdminConfigLogoUrl(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                            />
+                          </div>
+
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
+                            <div>
+                              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Saldo Inicial Global ($)</label>
+                              <input
+                                type="number"
+                                step="100"
+                                value={adminConfigSaldoInicialGlobal}
+                                onChange={(e) => setAdminConfigSaldoInicialGlobal(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-indigo-950 bg-indigo-50/40"
+                              />
+                              <span className="text-[10px] text-slate-500 mt-1 block">Saldo base con el que arranca el sistema.</span>
+                            </div>
+                            <div>
+                              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Umbral Egreso Mayor ($)</label>
+                              <input
+                                type="number"
+                                min="0"
+                                step="1000"
+                                value={adminConfigUmbralEgreso}
+                                onChange={(e) => setAdminConfigUmbralEgreso(e.target.value)}
+                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-amber-950 bg-amber-50/40"
+                              />
+                              <span className="text-[10px] text-slate-500 mt-1 block">Egresos desde este monto piden Visto Bueno Pastoral.</span>
+                            </div>
+                          </div>
+
                           <button
                             type="submit"
-                            className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
+                            className="w-full py-3.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-4"
                           >
-                            Crear Usuario
+                            Guardar Configuración General
                           </button>
                         </form>
                       </div>
+                    </div>
 
-                      <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                        <h3 className="text-base font-bold text-slate-900 mb-4">Usuarios Registrados en el Sistema</h3>
-                        <div className="space-y-3">
-                          {(usuariosSistema || []).map((u) => {
-                            if (!u) return null;
-                            return (
-                              <div key={u.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-emerald-100 text-emerald-900' : 'bg-indigo-100 text-indigo-900'}`}>
-                                      {u.rol}
-                                    </span>
+                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between space-y-4">
+                      <div className="space-y-4">
+                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
+                          <div className="p-2.5 bg-rose-50 text-rose-700 rounded-xl">
+                            <Tags className="w-6 h-6" />
+                          </div>
+                          <div>
+                            <h3 className="text-base font-bold text-slate-900">Categorías de Egresos</h3>
+                            <p className="text-xs text-slate-500">Agrega, modifica o elimina las categorías que usa Tesorería.</p>
+                          </div>
+                        </div>
+
+                        <form onSubmit={handleAgregarCategoriaEgreso} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            placeholder="Nueva categoría (Ej. Transporte, Impuestos)..."
+                            value={nuevaCategoriaInput}
+                            onChange={(e) => setNuevaCategoriaInput(e.target.value)}
+                            className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 text-xs bg-white font-medium"
+                          />
+                          <button
+                            type="submit"
+                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs shrink-0"
+                          >
+                            + Agregar
+                          </button>
+                        </form>
+
+                        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
+                          {categoriasDisponibles.map((cat, idx) => (
+                            <div
+                              key={`${cat}-${idx}`}
+                              className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2 text-xs"
+                            >
+                              {editandoCategoriaIdx === idx ? (
+                                <div className="flex items-center gap-1.5 flex-1">
+                                  <input
+                                    type="text"
+                                    value={editandoCategoriaValor}
+                                    onChange={(e) => setEditandoCategoriaValor(e.target.value)}
+                                    className="flex-1 px-2.5 py-1 rounded-lg border border-indigo-300 bg-white font-bold text-slate-800"
+                                    autoFocus
+                                  />
+                                  <button
+                                    type="button"
+                                    onClick={() => handleGuardarEdicionCategoria(idx)}
+                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px]"
+                                  >
+                                    Guardar
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditandoCategoriaIdx(null);
+                                      setEditandoCategoriaValor('');
+                                    }}
+                                    className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 font-bold text-[11px]"
+                                  >
+                                    ✕
+                                  </button>
+                                </div>
+                              ) : (
+                                <>
+                                  <span className="font-bold text-slate-800 px-1">{cat}</span>
+                                  <div className="flex items-center gap-1 shrink-0">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setEditandoCategoriaIdx(idx);
+                                        setEditandoCategoriaValor(cat);
+                                      }}
+                                      className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition-colors"
+                                      title="Modificar categoría"
+                                    >
+                                      <Edit3 className="w-3.5 h-3.5" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleEliminarCategoriaEgreso(idx)}
+                                      className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
+                                      title="Eliminar categoría"
+                                    >
+                                      <Trash2 className="w-3.5 h-3.5" />
+                                    </button>
                                   </div>
-                                  <p className="text-xs text-slate-500 mt-0.5">Usuario: <strong className="text-slate-700">{u.usuario}</strong> | Clave: {u.clave}</p>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleEstadoUsuario(u.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold ${u.activo ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}
-                                  >
-                                    {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEliminarUsuarioModal(u)}
-                                    className="text-slate-400 hover:text-rose-600 p-1"
-                                    title="Eliminar usuario"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
+                                </>
+                              )}
+                            </div>
+                          ))}
                         </div>
                       </div>
+
+                      <div className="bg-slate-100 p-3 rounded-xl text-[11px] text-slate-600">
+                        Total categorías configuradas: <strong>{categoriasDisponibles.length}</strong>. Los cambios se sincronizan de inmediato con el formulario de salidas de Tesorería.
+                      </div>
                     </div>
+                  </div>
+                )}
+
+                {adminTab === 'USUARIOS' && (
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                      <h3 className="font-bold text-base text-slate-900 mb-1 flex items-center gap-2">
+                        <UserPlus className="w-5 h-5 text-indigo-700" />
+                        Crear Nuevo Usuario del Sistema
+                      </h3>
+                      <p className="text-xs text-slate-500 mb-4">Asigna credenciales directamente para Recaudadores, Tesoreros, Pastores o Administradores.</p>
+
+                      <form onSubmit={handleCrearUsuarioSistema} className="space-y-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Hna. Ana María"
+                            value={nuevoUserNombre}
+                            onChange={(e) => setNuevoUserNombre(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario (Login)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej. anamaria"
+                              value={nuevoUserAlias}
+                              onChange={(e) => setNuevoUserAlias(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Clave / Contraseña</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej. 2026"
+                              value={nuevoUserClave}
+                              onChange={(e) => setNuevoUserClave(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol en el Sistema</label>
+                          <select
+                            value={nuevoUserRol}
+                            onChange={(e) => setNuevoUserRol(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                          >
+                            <option value="RECAUDADOR">Recaudador</option>
+                            <option value="TESORERO">Tesorero</option>
+                            <option value="PASTOR">Pastor (Auditoría & Cierres)</option>
+                            <option value="ADMINISTRADOR">Administrador</option>
+                          </select>
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
+                        >
+                          Crear Usuario y Guardar
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                      <h3 className="font-bold text-base text-slate-900 mb-1">Cuentas Registradas (Edición Directa)</h3>
+                      <p className="text-xs text-slate-500 mb-4">Edita claves, nombres o roles directamente, o autoriza solicitudes de olvido de contraseña.</p>
+
+                      <div className="overflow-x-auto">
+                        <table className="w-full text-left border-collapse">
+                          <thead>
+                            <tr className="border-b border-slate-200 bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
+                              <th className="p-3">Nombre</th>
+                              <th className="p-3">Usuario / Clave</th>
+                              <th className="p-3">Rol</th>
+                              <th className="p-3 text-center">Estado</th>
+                              <th className="p-3 text-center">Acciones</th>
+                            </tr>
+                          </thead>
+                          <tbody className="divide-y divide-slate-100 text-xs">
+                            {(usuariosSistema || []).map((u) => {
+                              if (!u) return null;
+                              return (
+                                <tr key={u.id} className="hover:bg-slate-50">
+                                  <td className="p-3 font-bold text-slate-800">
+                                    {u.nombre}
+                                    {u.solicitudClave && (
+                                      <span className="block text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded mt-1">
+                                        Solicitó Cambio de Clave
+                                      </span>
+                                    )}
+                                  </td>
+                                  <td className="p-3 font-mono text-indigo-800">
+                                    <span className="font-bold block">{u.usuario}</span>
+                                    <span className="text-[11px] text-slate-500">Clave: {u.clave}</span>
+                                  </td>
+                                  <td className="p-3">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      u.rol === 'PASTOR'
+                                        ? 'bg-amber-100 text-amber-900'
+                                        : u.rol === 'ADMINISTRADOR'
+                                        ? 'bg-sky-100 text-sky-900'
+                                        : u.rol === 'TESORERO'
+                                        ? 'bg-emerald-100 text-emerald-900'
+                                        : 'bg-indigo-100 text-indigo-900'
+                                    }`}>
+                                      {u.rol}
+                                    </span>
+                                  </td>
+                                  <td className="p-3 text-center">
+                                    <button
+                                      onClick={() => handleToggleEstadoUsuario(u.id)}
+                                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
+                                        u.activo ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                                      }`}
+                                    >
+                                      {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
+                                    </button>
+                                  </td>
+                                  <td className="p-3 text-center whitespace-nowrap">
+                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      {u.solicitudClave && (
+                                        <>
+                                          <button
+                                            onClick={() => handleAutorizarCambioClave(u.id, true)}
+                                            className="px-2 py-1 rounded bg-emerald-600 text-white font-bold text-[10px] hover:bg-emerald-700"
+                                          >
+                                            Autorizar Clave
+                                          </button>
+                                          <button
+                                            onClick={() => handleAutorizarCambioClave(u.id, false)}
+                                            className="px-2 py-1 rounded bg-rose-600 text-white font-bold text-[10px] hover:bg-rose-700"
+                                          >
+                                            Denegar
+                                          </button>
+                                        </>
+                                      )}
+                                      <button
+                                        onClick={() => openEditarUsuarioModal(u)}
+                                        className="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold text-[10px] border border-indigo-200 flex items-center gap-1"
+                                        title="Editar usuario y clave directamente"
+                                      >
+                                        <UserCog className="w-3 h-3" />
+                                        Editar
+                                      </button>
+                                      <button
+                                        onClick={() => setEliminarUsuarioModal(u)}
+                                        className="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200"
+                                        title="Eliminar usuario"
+                                      >
+                                        Eliminar
+                                      </button>
+                                    </div>
+                                  </td>
+                                </tr>
+                              );
+                            })}
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {adminTab === 'RESPALDO' && (
+                  <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
+                    <div className="text-center space-y-2">
+                      <div className="w-16 h-16 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
+                        <Database className="w-8 h-8" />
+                      </div>
+                      <h3 className="text-xl font-bold text-slate-900">Respaldo y Restauración de Base de Datos (JSON)</h3>
+                      <p className="text-sm text-slate-500 max-w-xl mx-auto">
+                        Exporta una copia de seguridad íntegra con todos los movimientos, usuarios, saldos iniciales y cierres pastorales, o restaura un respaldo previo.
+                      </p>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
+                      <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col justify-between gap-4">
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                            <Download className="w-5 h-5 text-emerald-600" />
+                            1. Exportar Copia de Seguridad
+                          </h4>
+                          <p className="text-xs text-slate-600 mt-1">
+                            Descarga un archivo <code>.json</code> con el estado actual completo ({movimientos.length} movimientos, {usuariosSistema.length} usuarios, {cierresMensuales.length} cierres).
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={handleDescargarRespaldoJSON}
+                          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
+                        >
+                          <Download className="w-4 h-4" />
+                          Descargar Respaldo JSON
+                        </button>
+                      </div>
+
+                      <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col justify-between gap-4">
+                        <div>
+                          <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
+                            <Upload className="w-5 h-5 text-indigo-700" />
+                            2. Importar / Restaurar Respaldo
+                          </h4>
+                          <p className="text-xs text-slate-600 mt-1">
+                            Selecciona un archivo <code>.json</code> descargado previamente para previsualizarlo y restaurar la información en la nube.
+                          </p>
+                        </div>
+                        <label className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                          <Upload className="w-4 h-4" />
+                          <span>Seleccionar Archivo JSON</span>
+                          <input
+                            type="file"
+                            accept=".json,application/json"
+                            onChange={handleSeleccionarArchivoJSON}
+                            className="hidden"
+                          />
+                        </label>
+                      </div>
+                    </div>
+
+                    {jsonBackupPreview && (
+                      <div className="p-5 rounded-2xl border-2 border-amber-400 bg-amber-50 space-y-4">
+                        <div className="flex items-start justify-between">
+                          <div>
+                            <span className="text-xs font-extrabold uppercase text-amber-900 bg-amber-200 px-2.5 py-0.5 rounded">
+                              Vista Previa de Restauración
+                            </span>
+                            <h4 className="font-bold text-slate-900 text-sm mt-2">Archivo: {jsonBackupPreview.nombreArchivo}</h4>
+                            <p className="text-xs text-slate-600">Fecha de exportación: {jsonBackupPreview.fechaExportacion}</p>
+                          </div>
+                          <button onClick={() => setJsonBackupPreview(null)} className="text-slate-500 hover:text-slate-800">
+                            <X className="w-5 h-5" />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-amber-200 text-center text-xs">
+                          <div>
+                            <span className="text-slate-400 block">Movimientos</span>
+                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalMovimientos}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Usuarios</span>
+                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalUsuarios}</span>
+                          </div>
+                          <div>
+                            <span className="text-slate-400 block">Cierres</span>
+                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalCierres}</span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-3">
+                          <button
+                            type="button"
+                            onClick={handleConfirmarRestauracionJSON}
+                            className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
+                          >
+                            Confirmar y Restaurar Base de Datos
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => setJsonBackupPreview(null)}
+                            className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold text-xs"
+                          >
+                            Cancelar
+                          </button>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -3953,36 +5390,58 @@ export default function App() {
         )}
       </main>
 
-      {/* ================= MODALES AUXILIARES ================= */}
-      {abonoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Registrar Abono para {abonoModal.comprador.nombre}</h3>
-            <p className="text-xs text-slate-500">Saldo pendiente actual: <strong className="text-rose-600">{formatCOP(abonoModal.saldoPendiente)}</strong></p>
+      {/* ================= MODALES DEL SISTEMA ================= */}
 
-            <form onSubmit={handleConfirmarAbono} className="space-y-4">
+      {/* MODAL: CONFIGURAR SALDO INICIAL */}
+      {showSaldoInicialModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-base">Configurar Saldo Inicial de Caja</h3>
+              </div>
+              <button onClick={() => setShowSaldoInicialModal(false)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleGuardarSaldoInicialMes} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Define el saldo base disponible en caja. Este valor se suma automáticamente a todas las entradas registradas menos las salidas netas.
+              </p>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor del Abono ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Período / Mes de Referencia</label>
+                <input
+                  type="month"
+                  required
+                  value={mesSaldoInicialModal}
+                  onChange={(e) => {
+                    const m = e.target.value;
+                    setMesSaldoInicialModal(m);
+                    const sMap = configuracionApp.saldosInicialesPorMes || {};
+                    const val = sMap[m] !== undefined ? sMap[m] : configuracionApp.saldoInicialGlobal || 0;
+                    setValorSaldoInicialModalInput(String(val));
+                  }}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor Saldo Inicial ($)</label>
                 <input
                   type="number"
-                  min="100"
                   step="100"
                   required
+                  value={valorSaldoInicialModalInput}
+                  onChange={(e) => setValorSaldoInicialModalInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-indigo-950 bg-indigo-50/40"
                   autoFocus
-                  value={valorAbonoInput}
-                  onChange={(e) => setValorAbonoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
                 />
-                <span className="block text-[11px] text-emerald-700 font-bold mt-1.5">
-                  Este valor de {formatCOP(valorAbonoInput)} se sumará al dinero recogido en mano para entregar a Tesorería.
-                </span>
               </div>
-
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setAbonoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  onClick={() => setShowSaldoInicialModal(false)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
@@ -3990,7 +5449,7 @@ export default function App() {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
                 >
-                  Confirmar Abono
+                  Guardar Saldo Inicial
                 </button>
               </div>
             </form>
@@ -3998,40 +5457,53 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: DEVOLVER SOBRANTE EN LIBRO ÚNICO */}
       {sobranteLibroModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Devolver Sobrante de Salida a Caja</h3>
-            <p className="text-xs text-slate-500">
-              Egreso: <strong>{sobranteLibroModal.descripcion}</strong><br />
-              Entregado inicialmente: <strong>{formatCOP(sobranteLibroModal.montoSalida)}</strong>
-              {Number(sobranteLibroModal.montoSobranteDevuelto) > 0 && (
-                <> | Ya devuelto: <strong className="text-emerald-700">{formatCOP(sobranteLibroModal.montoSobranteDevuelto)}</strong></>
-              )}
-            </p>
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-emerald-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Banknote className="w-5 h-5 text-emerald-200" />
+                <h3 className="font-bold text-base">Reintegrar Sobrante a Caja</h3>
+              </div>
+              <button onClick={() => setSobranteLibroModal(null)} className="text-emerald-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmarSobranteLibro} className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
+                <span className="font-mono font-bold text-indigo-800">{sobranteLibroModal.id}</span>
+                <p className="font-bold text-slate-900">{sobranteLibroModal.actividad}</p>
+                <p className="text-slate-600">{sobranteLibroModal.descripcion}</p>
+                <div className="pt-2 border-t border-slate-200 flex justify-between font-bold">
+                  <span>Salida Original: {formatCOP(sobranteLibroModal.montoSalida)}</span>
+                  <span className="text-emerald-700">Ya Devuelto: {formatCOP(sobranteLibroModal.montoSobranteDevuelto || 0)}</span>
+                </div>
+              </div>
 
-            <form onSubmit={handleConfirmarSobranteLibro} className="space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Sobrante que Regresa ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor Sobrante que Regresa a Caja ($)</label>
                 <input
                   type="number"
                   min="100"
                   step="100"
                   required
-                  autoFocus
-                  placeholder="Ej. 25000"
+                  placeholder="Ej. 20000"
                   value={valorSobranteLibroInput}
                   onChange={(e) => setValorSobranteLibroInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-emerald-700 bg-emerald-50/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
+                  autoFocus
                 />
-                <span className="text-[11px] text-slate-500 mt-1 block">Este dinero volverá a sumarse automáticamente al Saldo en Caja.</span>
+                <span className="text-[11px] text-slate-500 mt-1 block">
+                  Este valor se restará del gasto neto y aumentará inmediatamente el Saldo Real en Caja.
+                </span>
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setSobranteLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
@@ -4039,7 +5511,7 @@ export default function App() {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
                 >
-                  Reintegrar a Caja
+                  Confirmar Devolución
                 </button>
               </div>
             </form>
@@ -4047,30 +5519,40 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: SOLICITAR CORRECCIÓN / EDICIÓN EN LIBRO ÚNICO (PARA PASTOR) */}
       {solicitudEdicionLibroModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso para Corregir Registro</h3>
-            <p className="text-xs text-slate-500">Explica al Pastor qué error tiene este movimiento del Libro Único ({solicitudEdicionLibroModal.id}) para autorizar su edición.</p>
-
-            <form onSubmit={handleEnviarSolicitudEdicionLibro} className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-indigo-300" />
+                <h3 className="font-bold text-base">Solicitar Permiso de Edición al Pastor</h3>
+              </div>
+              <button onClick={() => setSolicitudEdicionLibroModal(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudEdicionLibro} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Por seguridad contable, para corregir los datos de un movimiento ya asentado en el Libro Único (<strong>{solicitudEdicionLibroModal.id} - {solicitudEdicionLibroModal.actividad}</strong>), necesitas la autorización previa del Pastor.
+              </p>
               <div>
-                <input
-                  type="text"
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Motivo de la Corrección</label>
+                <textarea
+                  rows="3"
                   required
-                  autoFocus
-                  placeholder="Ej. Se digitó mal el valor o la fecha..."
+                  placeholder="Explica qué dato quedó mal digitado y cuál es el valor correcto..."
                   value={motivoEdicionLibroInput}
                   onChange={(e) => setMotivoEdicionLibroInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  autoFocus
+                ></textarea>
               </div>
-
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setSolicitudEdicionLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
@@ -4078,7 +5560,7 @@ export default function App() {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
                 >
-                  Enviar al Pastor
+                  Enviar Solicitud al Pastor
                 </button>
               </div>
             </form>
@@ -4086,38 +5568,45 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: CORREGIR REGISTRO EN LIBRO ÚNICO (AUTORIZADO POR PASTOR) */}
       {editarLibroModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Corregir Registro del Libro Único ({editarLibroModal.id})</h3>
-            <p className="text-xs text-emerald-700 font-semibold">Corrección autorizada por el Pastor / Administrador.</p>
-
-            <form onSubmit={handleGuardarEdicionLibro} className="space-y-3">
-              <div className="grid grid-cols-2 gap-3">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-base">Corregir Registro ({editarLibroModal.id})</h3>
+              </div>
+              <button onClick={() => setEditarLibroModal(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleGuardarEdicionLibro} className="p-6 space-y-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha</label>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Fecha</label>
                   <input
                     type="date"
                     required
                     value={editLibroFecha}
                     onChange={(e) => setEditLibroFecha(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white font-bold"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Actividad / Categoría</label>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Actividad / Categoría</label>
                   <input
                     type="text"
                     required
                     value={editLibroActividad}
                     onChange={(e) => setEditLibroActividad(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white font-bold"
                   />
                 </div>
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Descripción</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Descripción / Concepto</label>
                 <input
                   type="text"
                   required
@@ -4128,7 +5617,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Responsable</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Responsable</label>
                 <input
                   type="text"
                   required
@@ -4138,10 +5627,10 @@ export default function App() {
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
-                    {editarLibroModal.tipo === 'INGRESO' ? 'Valor Entrada ($)' : 'Valor Salida ($)'}
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
+                    {editarLibroModal.tipo === 'INGRESO' ? 'Valor Entrada Real ($)' : 'Valor Salida Total ($)'}
                   </label>
                   <input
                     type="number"
@@ -4150,35 +5639,36 @@ export default function App() {
                     required
                     value={editLibroMonto}
                     onChange={(e) => setEditLibroMonto(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold bg-white"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-indigo-950 bg-indigo-50/40"
                   />
                 </div>
+
                 {editarLibroModal.tipo === 'EGRESO' && (
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Sobrante Devuelto ($)</label>
+                    <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Sobrante Devuelto ($)</label>
                     <input
                       type="number"
                       min="0"
                       step="100"
                       value={editLibroSobrante}
                       onChange={(e) => setEditLibroSobrante(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs font-bold text-emerald-700 bg-white"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-emerald-800 bg-emerald-50/40"
                     />
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditarLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
                 >
                   Guardar Corrección
                 </button>
@@ -4188,42 +5678,83 @@ export default function App() {
         </div>
       )}
 
-      {arqueoItem && (
+      {/* MODAL: EDITAR USUARIO DIRECTAMENTE (ADMINISTRADOR) */}
+      {editarUsuarioModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Dinero</h3>
-            <p className="text-xs text-slate-500">Recaudo: <strong>{arqueoItem.actividad}</strong> (Responsable: {arqueoItem.responsable})</p>
-
-            <form onSubmit={handleConfirmarArqueo} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Monto Físico Contado ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  required
-                  autoFocus
-                  value={montoFisicoContado}
-                  onChange={(e) => setMontoFisicoContado(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
-                />
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <UserCog className="w-5 h-5 text-sky-400" />
+                <h3 className="font-bold text-base">Editar Usuario del Sistema</h3>
               </div>
-
+              <button onClick={() => setEditarUsuarioModal(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleGuardarEdicionUsuario} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nota u Observación del Arqueo</label>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Completo</label>
                 <input
                   type="text"
-                  value={notaArqueo}
-                  onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  required
+                  value={editUserNombre}
+                  onChange={(e) => setEditUserNombre(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
                 />
               </div>
 
-              <div className="flex items-center gap-2 pt-2">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Usuario (Alias)</label>
+                  <input
+                    type="text"
+                    required
+                    value={editUserAlias}
+                    onChange={(e) => setEditUserAlias(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                  />
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Contraseña / Clave</label>
+                  <input
+                    type="text"
+                    required
+                    value={editUserClave}
+                    onChange={(e) => setEditUserClave(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono font-bold text-indigo-900"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Rol Asignado</label>
+                <select
+                  value={editUserRol}
+                  onChange={(e) => setEditUserRol(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                >
+                  <option value="RECAUDADOR">Recaudador</option>
+                  <option value="TESORERO">Tesorero</option>
+                  <option value="PASTOR">Pastor</option>
+                  <option value="ADMINISTRADOR">Administrador</option>
+                </select>
+              </div>
+
+              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer pt-1">
+                <input
+                  type="checkbox"
+                  checked={editUserActivo}
+                  onChange={(e) => setEditUserActivo(e.target.checked)}
+                  className="rounded text-indigo-950"
+                />
+                <span>Cuenta Activa (Puede iniciar sesión)</span>
+              </label>
+
+              <div className="flex items-center gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setArqueoItem(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  onClick={() => setEditarUsuarioModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
@@ -4231,7 +5762,7 @@ export default function App() {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
                 >
-                  Guardar Arqueo
+                  Guardar Cambios
                 </button>
               </div>
             </form>
@@ -4239,36 +5770,165 @@ export default function App() {
         </div>
       )}
 
-      {solicitudEdicionModal && (
+      {/* MODAL: SOLICITAR BORRADO AL PASTOR */}
+      {solicitudBorradoModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
-            <p className="text-xs text-slate-500">Escribe por qué necesitas modificar este recaudo para que Tesorería te autorice.</p>
-
-            <form onSubmit={handleEnviarSolicitudEdicion} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ej. Me equivoqué en la cantidad de tamales..."
-                  value={motivoSolicitudEdicion}
-                  onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-amber-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <ShieldAlert className="w-5 h-5 text-amber-200" />
+                <h3 className="font-bold text-base">Solicitar Permiso de Borrado al Pastor</h3>
               </div>
-
-              <div className="flex items-center gap-2 pt-1">
+              <button onClick={() => setSolicitudBorradoModal(null)} className="text-amber-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudBorrado} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Para borrar un registro del Libro Único (<strong>{solicitudBorradoModal.id} - {solicitudBorradoModal.actividad}</strong>), es obligatoria la autorización del Pastor.
+              </p>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Motivo de Eliminación</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Explica por qué se debe eliminar este registro..."
+                  value={motivoBorradoInput}
+                  onChange={(e) => setMotivoBorradoInput(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  autoFocus
+                ></textarea>
+              </div>
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setSolicitudEdicionModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  onClick={() => setSolicitudBorradoModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
+                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md"
+                >
+                  Enviar Solicitud al Pastor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CONFIRMAR ELIMINACIÓN DE REGISTRO (YA AUTORIZADO POR PASTOR) */}
+      {eliminarItemModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-rose-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-rose-200" />
+                <h3 className="font-bold text-base">Eliminar Registro del Libro</h3>
+              </div>
+              <button onClick={() => setEliminarItemModal(null)} className="text-rose-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                El Pastor ya autorizó esta acción. ¿Confirmas la eliminación definitiva del registro <strong>{eliminarItemModal.id} ({eliminarItemModal.actividad})</strong>?
+              </p>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEliminarItemModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEliminarRegistroLibro}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
+                >
+                  Sí, Eliminar Definitivamente
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ELIMINAR USUARIO */}
+      {eliminarUsuarioModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-rose-700 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Trash2 className="w-5 h-5 text-rose-200" />
+                <h3 className="font-bold text-base">Eliminar Usuario</h3>
+              </div>
+              <button onClick={() => setEliminarUsuarioModal(null)} className="text-rose-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                ¿Estás seguro de eliminar la cuenta de <strong>{eliminarUsuarioModal.nombre}</strong> ({eliminarUsuarioModal.usuario})?
+              </p>
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEliminarUsuarioModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarEliminarUsuario}
+                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
+                >
+                  Eliminar Usuario
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: SOLICITUD DE EDICIÓN DE RECAUDO (RECAUDADOR -> TESORERÍA) */}
+      {solicitudEdicionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Permiso de Edición</h3>
+              <button onClick={() => setSolicitudEdicionModal(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudEdicion} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Explica a Tesorería por qué necesitas editar el recaudo <strong>{solicitudEdicionModal.id}</strong> ({solicitudEdicionModal.actividad}).
+              </p>
+              <textarea
+                rows="3"
+                required
+                placeholder="Motivo del cambio..."
+                value={motivoSolicitudEdicion}
+                onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                autoFocus
+              ></textarea>
+              <div className="flex items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => setSolicitudEdicionModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
                 >
                   Enviar Solicitud
                 </button>
@@ -4278,36 +5938,40 @@ export default function App() {
         </div>
       )}
 
+      {/* MODAL: SOLICITUD INCOBRABLE */}
       {solicitudIncobrableModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Solicitud de Deuda Incobrable</h3>
-            <p className="text-xs text-slate-500">Explica por qué esta deuda no se va a poder cobrar para que Tesorería la apruebe.</p>
-
-            <form onSubmit={handleEnviarSolicitudIncobrable} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ej. La persona se mudó de la ciudad y no contesta..."
-                  value={motivoIncobrableInput}
-                  onChange={(e) => setMotivoIncobrableInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-amber-700 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Reportar Deuda Incobrable</h3>
+              <button onClick={() => setSolicitudIncobrableModal(null)} className="text-amber-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudIncobrable} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Tesorería revisará el motivo para dar de baja esta deuda pendiente sin afectar tu entrega de dinero.
+              </p>
+              <textarea
+                rows="3"
+                required
+                placeholder="Explica por qué no se pudo cobrar esta deuda..."
+                value={motivoIncobrableInput}
+                onChange={(e) => setMotivoIncobrableInput(e.target.value)}
+                className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                autoFocus
+              ></textarea>
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
                   onClick={() => setSolicitudIncobrableModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md"
+                  className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-bold text-xs"
                 >
                   Enviar a Tesorería
                 </button>
@@ -4317,260 +5981,40 @@ export default function App() {
         </div>
       )}
 
-      {solicitudBorradoModal && (
+      {/* MODAL: REGISTRAR ABONO DE DEUDOR */}
+      {abonoModal && (
         <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Borrado al Pastor</h3>
-            <p className="text-xs text-slate-500">Escribe el motivo por el cual necesitas eliminar este registro del libro único.</p>
-
-            <form onSubmit={handleEnviarSolicitudBorrado} className="space-y-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Registrar Abono de {abonoModal.comprador?.nombre}</h3>
+              <button onClick={() => setAbonoModal(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmarAbono} className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex justify-between font-bold">
+                <span>Saldo Pendiente Actual:</span>
+                <span className="text-rose-700">{formatCOP(abonoModal.saldoPendiente)}</span>
+              </div>
               <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor del Abono Recibido ($)</label>
                 <input
-                  type="text"
+                  type="number"
+                  min="100"
+                  max={abonoModal.saldoPendiente}
+                  step="100"
                   required
+                  value={valorAbonoInput}
+                  onChange={(e) => setValorAbonoInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
                   autoFocus
-                  placeholder="Ej. Registro duplicado por error..."
-                  value={motivoBorradoInput}
-                  onChange={(e) => setMotivoBorradoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                 />
               </div>
-
-              <div className="flex items-center gap-2 pt-1">
+              <div className="flex items-center gap-3">
                 <button
                   type="button"
-                  onClick={() => setSolicitudBorradoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
-                >
-                  Enviar al Pastor
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {eliminarItemModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
-            <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center mx-auto">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-base text-slate-900">¿Eliminar registro del libro?</h3>
-            <p className="text-xs text-slate-500">El Pastor ha autorizado el borrado de este registro.</p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEliminarItemModal(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleEliminarRegistroLibro}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {eliminarUsuarioModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4">
-            <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-base text-slate-900">¿Eliminar usuario {eliminarUsuarioModal.nombre}?</h3>
-            <p className="text-xs text-slate-500">Ya no podrá iniciar sesión en el sistema.</p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEliminarUsuarioModal(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarEliminarUsuario}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCambioClaveRecaudadorModal && usuarioLogueadoRecaudador && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Cambiar Contraseña</h3>
-            <form onSubmit={handleCambiarClavePropiaRecaudador} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
-                <input
-                  type="password"
-                  required
-                  value={claveActualRecInput}
-                  onChange={(e) => setClaveActualRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
-                <input
-                  type="password"
-                  required
-                  value={claveNuevaRecInput}
-                  onChange={(e) => setClaveNuevaRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCambioClaveRecaudadorModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Guardar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showCambioClaveTesoreroModal && usuarioLogueadoTesorero && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Cambiar Contraseña Tesorería</h3>
-            <form onSubmit={handleCambiarClavePropiaTesorero} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
-                <input
-                  type="password"
-                  required
-                  value={claveActualTesInput}
-                  onChange={(e) => setClaveActualTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
-                <input
-                  type="password"
-                  required
-                  value={claveNuevaTesInput}
-                  onChange={(e) => setClaveNuevaTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCambioClaveTesoreroModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Guardar
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showOlvidoClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Recuperar Contraseña</h3>
-            <p className="text-xs text-slate-500">Ingresa tu usuario (alias) para enviar una solicitud de restablecimiento al Administrador.</p>
-            <form onSubmit={handleEnviarSolicitudClave} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Tu usuario (ej. marta)"
-                  value={usuarioOlvidoInput}
-                  onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowOlvidoClaveModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Enviar Solicitud
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {showRestablecerClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4">
-            <h3 className="font-bold text-base text-slate-900">Restablecer con Autorización</h3>
-            <p className="text-xs text-slate-500">Si el Administrador ya te autorizó, ingresa tu usuario y tu nueva contraseña.</p>
-            <form onSubmit={handleConfirmarNuevoCambioClave} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Tu Usuario</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. marta"
-                  value={usuarioRestablecerAlias}
-                  onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••"
-                  value={nuevaClaveInput}
-                  onChange={(e) => setNuevaClaveInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowRestablecerClaveModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+                  onClick={() => setAbonoModal(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
                 >
                   Cancelar
                 </button>
@@ -4578,9 +6022,230 @@ export default function App() {
                   type="submit"
                   className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
                 >
-                  Actualizar Clave
+                  Confirmar Abono
                 </button>
               </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: ARQUEO FÍSICO DE TESORERÍA */}
+      {arqueoItem && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <Calculator className="w-5 h-5 text-emerald-400" />
+                <h3 className="font-bold text-base">Arqueo Físico en Caja</h3>
+              </div>
+              <button onClick={() => setArqueoItem(null)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmarArqueo} className="p-6 space-y-4">
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
+                <span className="font-mono font-bold text-indigo-800">{arqueoItem.id}</span>
+                <p className="font-bold text-slate-900">{arqueoItem.actividad}</p>
+                <p className="text-slate-600">Recaudador: <strong>{arqueoItem.responsable}</strong></p>
+                <div className="pt-2 border-t border-slate-200 flex justify-between font-extrabold text-sm">
+                  <span>Monto Reportado por Recibir:</span>
+                  <span className="text-indigo-950">
+                    {formatCOP(Number(arqueoItem.ultimoAbonoReportado) > 0 ? arqueoItem.ultimoAbonoReportado : arqueoItem.montoReportado)}
+                  </span>
+                </div>
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Efectivo / Transferencia Real Contada ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  required
+                  value={montoFisicoContado}
+                  onChange={(e) => setMontoFisicoContado(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
+                  autoFocus
+                />
+              </div>
+
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Observación / Nota de Arqueo (Opcional)</label>
+                <input
+                  type="text"
+                  placeholder="Ej. Todo cuadrado en efectivo..."
+                  value={notaArqueo}
+                  onChange={(e) => setNotaArqueo(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs bg-white"
+                />
+              </div>
+
+              <div className="flex items-center gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setArqueoItem(null)}
+                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                >
+                  Confirmar Ingreso a Caja
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CAMBIO DE CLAVE PROPIA RECAUDADOR */}
+      {showCambioClaveRecaudadorModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Cambiar Mi Contraseña</h3>
+              <button onClick={() => setShowCambioClaveRecaudadorModal(false)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCambiarClavePropiaRecaudador} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Clave Actual</label>
+                <input
+                  type="password"
+                  required
+                  value={claveActualRecInput}
+                  onChange={(e) => setClaveActualRecInput(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
+                <input
+                  type="password"
+                  required
+                  value={claveNuevaRecInput}
+                  onChange={(e) => setClaveNuevaRecInput(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
+                Actualizar Clave
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: CAMBIO DE CLAVE PROPIA TESORERO */}
+      {showCambioClaveTesoreroModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Cambiar Clave de Tesorería</h3>
+              <button onClick={() => setShowCambioClaveTesoreroModal(false)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleCambiarClavePropiaTesorero} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Clave Actual</label>
+                <input
+                  type="password"
+                  required
+                  value={claveActualTesInput}
+                  onChange={(e) => setClaveActualTesInput(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
+                <input
+                  type="password"
+                  required
+                  value={claveNuevaTesInput}
+                  onChange={(e) => setClaveNuevaTesInput(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
+                Actualizar Clave
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: OLVIDO DE CLAVE */}
+      {showOlvidoClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
+            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Recuperar Acceso</h3>
+              <button onClick={() => setShowOlvidoClaveModal(false)} className="text-indigo-300 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudClave} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Ingresa tu nombre de usuario. Se enviará una alerta al Administrador para habilitar el cambio de contraseña.
+              </p>
+              <input
+                type="text"
+                required
+                placeholder="Ej. marta"
+                value={usuarioOlvidoInput}
+                onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
+                className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                autoFocus
+              />
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
+                Solicitar Restablecimiento
+              </button>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* MODAL: RESTABLECER CLAVE CON AUTORIZACIÓN */}
+      {showRestablecerClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
+            <div className="bg-emerald-700 px-6 py-4 text-white flex items-center justify-between">
+              <h3 className="font-bold text-base">Crear Nueva Contraseña</h3>
+              <button onClick={() => setShowRestablecerClaveModal(false)} className="text-emerald-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleConfirmarNuevoCambioClave} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Tu Usuario</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. marta"
+                  value={usuarioRestablecerAlias}
+                  onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••"
+                  value={nuevaClaveInput}
+                  onChange={(e) => setNuevaClaveInput(e.target.value)}
+                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
+                />
+              </div>
+              <button type="submit" className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
+                Guardar Nueva Clave
+              </button>
             </form>
           </div>
         </div>
