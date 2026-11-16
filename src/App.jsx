@@ -83,6 +83,7 @@ const calcularResumenInventario = (item) => {
   let plataIncobrable = 0;
 
   compradores.forEach((c) => {
+    if (!c) return;
     const cant = Number(c.cantidad) || 0;
     const totalComp = cant * precioUnitario;
 
@@ -172,6 +173,10 @@ export default function App() {
           if (data.config) setConfiguracionApp((prev) => ({ ...prev, ...data.config }));
           if (data.cierres) setCierresMensuales(Array.isArray(data.cierres) ? data.cierres : []);
         }
+        setCargandoNube(false);
+      })
+      .catch((err) => {
+        console.error('Error cargando desde Supabase:', err);
         setCargandoNube(false);
       });
 
@@ -327,8 +332,8 @@ export default function App() {
       return;
     }
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id === solicitudBorradoModal.id) {
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === solicitudBorradoModal.id) {
         return {
           ...m,
           solicitudBorrado: true,
@@ -347,8 +352,9 @@ export default function App() {
   };
 
   const handleResolverBorradoAdmin = (item, autorizar) => {
-    const actualizados = movimientos.map((m) => {
-      if (m.id === item.id) {
+    if (!item) return;
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === item.id) {
         if (autorizar) {
           return {
             ...m,
@@ -375,7 +381,7 @@ export default function App() {
 
   const handleEliminarRegistroLibro = () => {
     if (!eliminarItemModal) return;
-    const actualizados = movimientos.filter((m) => m.id !== eliminarItemModal.id);
+    const actualizados = (movimientos || []).filter((m) => m && m.id !== eliminarItemModal.id);
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setEliminarItemModal(null);
@@ -390,7 +396,7 @@ export default function App() {
     }
 
     const aliasLimpio = nuevoUserAlias.trim().toLowerCase();
-    const existe = usuariosSistema.some((u) => u.usuario.toLowerCase() === aliasLimpio);
+    const existe = (usuariosSistema || []).some((u) => u && u.usuario && u.usuario.toLowerCase() === aliasLimpio);
     if (existe) {
       showToast('Ese nombre de usuario ya está registrado. Usa otro.', 'error');
       return;
@@ -407,7 +413,7 @@ export default function App() {
       claveAutorizada: false
     };
 
-    const actualizados = [...usuariosSistema, nuevoUser];
+    const actualizados = [...(usuariosSistema || []), nuevoUser];
     setUsuariosSistema(actualizados);
     guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
     setNuevoUserNombre('');
@@ -417,8 +423,8 @@ export default function App() {
   };
 
   const handleToggleEstadoUsuario = (userId) => {
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.id === userId) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.id === userId) {
         return { ...u, activo: !u.activo };
       }
       return u;
@@ -430,14 +436,14 @@ export default function App() {
 
   const handleConfirmarEliminarUsuario = () => {
     if (!eliminarUsuarioModal) return;
-    const admins = usuariosSistema.filter(u => u.rol === 'ADMINISTRADOR');
+    const admins = (usuariosSistema || []).filter(u => u && u.rol === 'ADMINISTRADOR');
     if (eliminarUsuarioModal.rol === 'ADMINISTRADOR' && admins.length <= 1) {
       showToast('No puedes eliminar al único administrador del sistema.', 'error');
       setEliminarUsuarioModal(null);
       return;
     }
 
-    const actualizados = usuariosSistema.filter(u => u.id !== eliminarUsuarioModal.id);
+    const actualizados = (usuariosSistema || []).filter(u => u && u.id !== eliminarUsuarioModal.id);
     setUsuariosSistema(actualizados);
     guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
     setEliminarUsuarioModal(null);
@@ -446,7 +452,7 @@ export default function App() {
 
   const handleEjecutarCierreDeMes = (e) => {
     e.preventDefault();
-    const movsDelMes = movimientos.filter(m => m.fecha && m.fecha.startsWith(mesCierreInput));
+    const movsDelMes = (movimientos || []).filter(m => m && m.fecha && m.fecha.startsWith(mesCierreInput));
     
     let entradasMes = 0;
     let salidasMes = 0;
@@ -470,7 +476,7 @@ export default function App() {
       saldoCajaFinal: kpis.saldoRealEnCaja
     };
 
-    const sinDuplicados = cierresMensuales.filter(c => c.mes !== mesCierreInput);
+    const sinDuplicados = (cierresMensuales || []).filter(c => c && c.mes !== mesCierreInput);
     const actualizadosCierres = [nuevoCierre, ...sinDuplicados];
     
     setCierresMensuales(actualizadosCierres);
@@ -491,8 +497,8 @@ export default function App() {
       return;
     }
 
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.id === usuarioLogueadoRecaudador.id) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.id === usuarioLogueadoRecaudador.id) {
         return { ...u, clave: claveNuevaRecInput.trim() };
       }
       return u;
@@ -520,8 +526,8 @@ export default function App() {
       return;
     }
 
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.id === usuarioLogueadoTesorero.id) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.id === usuarioLogueadoTesorero.id) {
         return { ...u, clave: claveNuevaTesInput.trim() };
       }
       return u;
@@ -539,15 +545,15 @@ export default function App() {
   const handleEnviarSolicitudClave = (e) => {
     e.preventDefault();
     const alias = usuarioOlvidoInput.trim().toLowerCase();
-    const usuarioEncontrado = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
+    const usuarioEncontrado = (usuariosSistema || []).find((u) => u && u.usuario && u.usuario.toLowerCase() === alias);
 
     if (!usuarioEncontrado) {
       showToast('No se encontró ningún usuario con ese nombre en el sistema.', 'error');
       return;
     }
 
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.usuario.toLowerCase() === alias) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.usuario && u.usuario.toLowerCase() === alias) {
         return { ...u, solicitudClave: true };
       }
       return u;
@@ -561,8 +567,8 @@ export default function App() {
   };
 
   const handleAutorizarCambioClave = (userId, autorizar) => {
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.id === userId) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.id === userId) {
         return {
           ...u,
           claveAutorizada: autorizar,
@@ -581,7 +587,7 @@ export default function App() {
     const alias = usuarioRestablecerAlias.trim().toLowerCase();
     const nuevaClave = nuevaClaveInput.trim();
 
-    const usr = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
+    const usr = (usuariosSistema || []).find((u) => u && u.usuario && u.usuario.toLowerCase() === alias);
     if (!usr) {
       showToast('Usuario no encontrado.', 'error');
       return;
@@ -592,8 +598,8 @@ export default function App() {
       return;
     }
 
-    const actualizados = usuariosSistema.map((u) => {
-      if (u.usuario.toLowerCase() === alias) {
+    const actualizados = (usuariosSistema || []).map((u) => {
+      if (u && u.usuario && u.usuario.toLowerCase() === alias) {
         return {
           ...u,
           clave: nuevaClave,
@@ -624,7 +630,8 @@ export default function App() {
     let plataFiada = 0;
     let plataIncobrable = 0;
 
-    recCompradores.forEach((c) => {
+    (recCompradores || []).forEach((c) => {
+      if (!c) return;
       const q = Number(c.cantidad) || 0;
       const totalComp = q * precio;
 
@@ -712,7 +719,7 @@ export default function App() {
       montoAbonado: montoAbonadoInicial,
     };
 
-    setRecCompradores([...recCompradores, nuevo]);
+    setRecCompradores([...(recCompradores || []), nuevo]);
     setNuevoCompNombre('');
     setNuevoCompCantidad('1');
     setNuevoCompAbono('');
@@ -730,10 +737,10 @@ export default function App() {
     const { movimientoId, compradorId } = solicitudIncobrableModal;
     let nombreDeudorLocal = '';
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
-      const comps = (m.compradores || []).map((c) => {
-        if (c.id !== compradorId) return c;
+    const actualizados = (movimientos || []).map((m) => {
+      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
+        if (!c || c.id !== compradorId) return c;
         nombreDeudorLocal = c.nombre;
         return {
           ...c,
@@ -759,11 +766,11 @@ export default function App() {
   const handleTesoreroResolverIncobrable = (movimientoId, compradorId, aprobar) => {
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = (movimientos || []).map((m) => {
+      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       let nombreComp = '';
-      const comps = (m.compradores || []).map((c) => {
-        if (c.id !== compradorId) return c;
+      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
+        if (!c || c.id !== compradorId) return c;
         nombreComp = c.nombre;
         return {
           ...c,
@@ -787,8 +794,8 @@ export default function App() {
 
   const handleModificarCompradorExistenteEnForm = (compId, campo, valor) => {
     setRecCompradores((prev) =>
-      prev.map((c) => {
-        if (c.id !== compId) return c;
+      (prev || []).map((c) => {
+        if (!c || c.id !== compId) return c;
         const actualizado = { ...c, [campo]: valor };
         if (campo === 'cantidad') {
           const cantNum = Number(valor) || 0;
@@ -804,7 +811,7 @@ export default function App() {
   };
 
   const handleEliminarCompradorForm = (compId) => {
-    setRecCompradores((prev) => prev.filter((c) => c.id !== compId));
+    setRecCompradores((prev) => (prev || []).filter((c) => c && c.id !== compId));
   };
 
   const handleRegistrarRecaudo = (e) => {
@@ -826,8 +833,8 @@ export default function App() {
         `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
 
       if (editingRecaudoId) {
-        const actualizados = movimientos.map((m) =>
-          m.id === editingRecaudoId
+        const actualizados = (movimientos || []).map((m) =>
+          m && m.id === editingRecaudoId
             ? {
                 ...m,
                 fecha: recFecha,
@@ -838,7 +845,7 @@ export default function App() {
                 metodoPago: recMetodo,
                 cantidadProducida: producidas,
                 precioUnitario: precio,
-                compradores: [...recCompradores],
+                compradores: [...(recCompradores || [])],
                 montoReportado: valorRecaudadoEnMano,
                 edicionAutorizada: false,
                 solicitudEdicion: false,
@@ -868,15 +875,16 @@ export default function App() {
         metodoPago: recMetodo,
         cantidadProducida: producidas,
         precioUnitario: precio,
-        compradores: [...recCompradores],
+        compradores: [...(recCompradores || [])],
         montoReportado: valorRecaudadoEnMano,
         montoRecibido: 0,
         montoSalida: 0,
         estado: 'PENDIENTE',
         notaTesorero: '',
+        ultimoAbonoReportado: 0
       };
 
-      const actualizados = [nuevoReg, ...movimientos];
+      const actualizados = [nuevoReg, ...(movimientos || [])];
       setMovimientos(actualizados);
       guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
@@ -894,8 +902,8 @@ export default function App() {
     }
 
     if (editingRecaudoId) {
-      const actualizados = movimientos.map((m) =>
-        m.id === editingRecaudoId
+      const actualizados = (movimientos || []).map((m) =>
+        m && m.id === editingRecaudoId
           ? {
               ...m,
               fecha: recFecha,
@@ -935,9 +943,10 @@ export default function App() {
       montoSalida: 0,
       estado: 'PENDIENTE',
       notaTesorero: '',
+      ultimoAbonoReportado: 0
     };
 
-    const actualizados = [nuevoReg, ...movimientos];
+    const actualizados = [nuevoReg, ...(movimientos || [])];
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setRecDescripcion('');
@@ -947,23 +956,24 @@ export default function App() {
   };
 
   const handleIniciarEdicion = (item) => {
+    if (!item) return;
     if (!item.edicionAutorizada) {
       showToast('Necesitas solicitar autorización de edición a Tesorería.', 'warning');
       return;
     }
     setEditingRecaudoId(item.id);
-    setRecFecha(item.fecha);
-    setRecActividadLibre(item.actividad);
-    setRecDescripcion(item.descripcion);
+    setRecFecha(item.fecha || new Date().toISOString().split('T')[0]);
+    setRecActividadLibre(item.actividad || '');
+    setRecDescripcion(item.descripcion || '');
     setRecMetodo(item.metodoPago || 'Efectivo');
     if (item.modoRegistro === 'UNIDADES') {
       setModoRecaudo('UNIDADES');
-      setRecCantidadProducida(String(item.cantidadProducida));
-      setRecPrecioUnitario(String(item.precioUnitario));
+      setRecCantidadProducida(String(item.cantidadProducida || 30));
+      setRecPrecioUnitario(String(item.precioUnitario || 12000));
       setRecCompradores(Array.isArray(item.compradores) ? [...item.compradores] : []);
     } else {
       setModoRecaudo('GENERAL');
-      setRecMonto(String(item.montoReportado));
+      setRecMonto(String(item.montoReportado || 0));
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
     showToast('Modo edición activado. Puedes corregir cantidades y compradores.');
@@ -975,8 +985,8 @@ export default function App() {
     const motivo = motivoSolicitudEdicion.trim();
     if (!motivo) return;
 
-    const actualizados = movimientos.map((m) =>
-      m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
+    const actualizados = (movimientos || []).map((m) =>
+      m && m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
     );
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
@@ -986,8 +996,9 @@ export default function App() {
   };
 
   const handleAutorizarEdicionTesorero = (item, aprobar) => {
-    const actualizados = movimientos.map((m) =>
-      m.id === item.id
+    if (!item) return;
+    const actualizados = (movimientos || []).map((m) =>
+      m && m.id === item.id
         ? {
             ...m,
             edicionAutorizada: aprobar,
@@ -1004,6 +1015,7 @@ export default function App() {
   };
 
   const openAbonoModal = (movimiento, comprador) => {
+    if (!movimiento || !comprador) return;
     const precio = Number(movimiento.precioUnitario) || 0;
     const totalComp = (Number(comprador.cantidad) || 0) * precio;
     const abonadoActual =
@@ -1026,12 +1038,12 @@ export default function App() {
     const abonoNuevo = Number(valorAbonoInput.toString().replace(/\D/g, '')) || 0;
     if (abonoNuevo <= 0) return;
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = (movimientos || []).map((m) => {
+      if (!m || m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
       
-      const comps = (m.compradores || []).map((c) => {
-        if (c.id !== abonoModal.comprador.id) return c;
+      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
+        if (!c || c.id !== abonoModal.comprador.id) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonadoPrevio =
           c.estadoPago === 'PAGADO'
@@ -1046,14 +1058,16 @@ export default function App() {
         };
       });
 
+      const invCalculado = calcularResumenInventario({ ...m, compradores: comps });
+      const plataPagadaActualizada = invCalculado.plataPagada;
+
       const yaSeEntregoAlgo = (Number(m.montoRecibido) || 0) > 0;
 
       if (!yaSeEntregoAlgo) {
-        const nuevoTotalReportado = (Number(m.montoReportado) || 0) + abonoNuevo;
         return {
           ...m,
           compradores: comps,
-          montoReportado: nuevoTotalReportado,
+          montoReportado: plataPagadaActualizada,
           ultimoAbonoReportado: 0,
           notaTesorero: `${m.notaTesorero || ''} [Abono sumado antes de entrega: +${formatCOP(abonoNuevo)}]`,
           estado: 'PENDIENTE'
@@ -1079,25 +1093,26 @@ export default function App() {
 
   const handleSaldarTodoComprador = (movimientoId, compradorId) => {
     let valorAbonadoExtra = 0;
-    const actualizados = movimientos.map((m) => {
-      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = (movimientos || []).map((m) => {
+      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
-      const comps = (m.compradores || []).map((c) => {
-        if (c.id !== compradorId) return c;
+      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
+        if (!c || c.id !== compradorId) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonadoPrevio = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
         valorAbonadoExtra = Math.max(0, totalC - abonadoPrevio);
         return { ...c, estadoPago: 'PAGADO', montoAbonado: totalC };
       });
 
+      const invCalculado = calcularResumenInventario({ ...m, compradores: comps });
+      const plataPagadaActualizada = invCalculado.plataPagada;
       const yaSeEntregoAlgo = (Number(m.montoRecibido) || 0) > 0;
 
       if (!yaSeEntregoAlgo) {
-        const nuevoTotalReportado = (Number(m.montoReportado) || 0) + valorAbonadoExtra;
         return {
           ...m,
           compradores: comps,
-          montoReportado: nuevoTotalReportado,
+          montoReportado: plataPagadaActualizada,
           ultimoAbonoReportado: 0,
           notaTesorero: `${m.notaTesorero || ''} [Deuda saldada antes de entrega: +${formatCOP(valorAbonadoExtra)}]`,
           estado: 'PENDIENTE'
@@ -1127,8 +1142,8 @@ export default function App() {
     let totalEnMano = 0;
     let totalFiado = 0;
 
-    movimientos.forEach((m) => {
-      if (m.tipo === 'INGRESO' && m.responsable === nombreRec) {
+    (movimientos || []).forEach((m) => {
+      if (m && m.tipo === 'INGRESO' && m.responsable === nombreRec) {
         const base = Number(m.montoReportado) || 0;
         const abonosExtras = Number(m.ultimoAbonoReportado) || 0;
         totalReportado += base + abonosExtras;
@@ -1159,7 +1174,8 @@ export default function App() {
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
 
-    movimientos.forEach((m) => {
+    (movimientos || []).forEach((m) => {
+      if (!m) return;
       if (m.solicitudBorrado && !m.borradoAutorizado) cantidadSolicitudesBorrado += 1;
       
       if (m.tipo === 'INGRESO') {
@@ -1180,7 +1196,7 @@ export default function App() {
 
         if (m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores)) {
           m.compradores.forEach((c) => {
-            if (c.solicitudIncobrable) cantidadSolicitudesIncobrable += 1;
+            if (c && c.solicitudIncobrable) cantidadSolicitudesIncobrable += 1;
           });
           const inv = calcularResumenInventario(m);
           totalPlataFiadaCalle += inv.plataFiada;
@@ -1215,8 +1231,8 @@ export default function App() {
     const uInput = recUserLoginInput.trim().toLowerCase();
     const pInput = recPassLoginInput.trim();
 
-    const encontrado = usuariosSistema.find(
-      (u) => u.rol === 'RECAUDADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = (usuariosSistema || []).find(
+      (u) => u && u.rol === 'RECAUDADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1241,8 +1257,8 @@ export default function App() {
     const uInput = tesUserLoginInput.trim().toLowerCase();
     const pInput = tesPassLoginInput.trim();
 
-    const encontrado = usuariosSistema.find(
-      (u) => u.rol === 'TESORERO' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = (usuariosSistema || []).find(
+      (u) => u && u.rol === 'TESORERO' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1267,8 +1283,8 @@ export default function App() {
     const uInput = adminUserLoginInput.trim().toLowerCase();
     const pInput = adminPassLoginInput.trim();
 
-    const encontrado = usuariosSistema.find(
-      (u) => u.rol === 'ADMINISTRADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = (usuariosSistema || []).find(
+      (u) => u && u.rol === 'ADMINISTRADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1289,6 +1305,7 @@ export default function App() {
   };
 
   const openArqueoModal = (item) => {
+    if (!item) return;
     setArqueoItem(item);
     const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
     setMontoFisicoContado(String(montoPendienteARecibir));
@@ -1304,8 +1321,8 @@ export default function App() {
 
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id === arqueoItem.id) {
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === arqueoItem.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
         const totalRecibidoReal = recibidoAnterior + contado;
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
@@ -1341,8 +1358,8 @@ export default function App() {
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
     const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
 
-    const actualizados = movimientos.map((m) => {
-      if (m.id === item.id) {
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === item.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
           ? (Number(m.montoReportado) || 0) + Number(m.ultimoAbonoReportado) 
@@ -1367,8 +1384,9 @@ export default function App() {
   };
 
   const handleAprobarAjusteDescuadre = (item) => {
-    const actualizados = movimientos.map((m) => {
-      if (m.id === item.id) {
+    if (!item) return;
+    const actualizados = (movimientos || []).map((m) => {
+      if (m && m.id === item.id) {
         return {
           ...m,
           montoReportado: m.montoRecibido,
@@ -1415,9 +1433,10 @@ export default function App() {
       montoSobranteDevuelto: sobrante,
       estado: 'EGRESO_REGISTRADO',
       notaTesorero: egrNota.trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
+      ultimoAbonoReportado: 0
     };
 
-    const actualizados = [nuevoEgreso, ...movimientos];
+    const actualizados = [nuevoEgreso, ...(movimientos || [])];
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setEgrConcepto('');
@@ -1432,7 +1451,7 @@ export default function App() {
     const headers = [
       'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Nota'
     ];
-    const rows = movimientos.map((m) => [
+    const rows = (movimientos || []).map((m) => [
       m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
       m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, `"${m.notaTesorero || ''}"`
     ]);
@@ -1449,27 +1468,30 @@ export default function App() {
   };
 
   const movimientosFiltrados = useMemo(() => {
-    return movimientos
+    return (movimientos || [])
       .filter((m) => {
+        if (!m) return false;
         if (filtroLibro === 'TODOS') return true;
         if (filtroLibro === 'INGRESOS') return m.tipo === 'INGRESO';
         if (filtroLibro === 'EGRESOS') return m.tipo === 'EGRESO';
         return m.estado === filtroLibro;
       })
       .filter((m) => {
+        if (!m) return false;
         if (!busquedaLibro.trim()) return true;
         const q = busquedaLibro.toLowerCase();
         return (
-          m.actividad.toLowerCase().includes(q) ||
-          m.descripcion.toLowerCase().includes(q) ||
-          m.responsable.toLowerCase().includes(q) ||
-          m.id.toLowerCase().includes(q)
+          (m.actividad || '').toLowerCase().includes(q) ||
+          (m.descripcion || '').toLowerCase().includes(q) ||
+          (m.responsable || '').toLowerCase().includes(q) ||
+          (m.id || '').toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+      .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
   }, [movimientos, filtroLibro, busquedaLibro]);
 
   const renderEstadoBadge = (m) => {
+    if (!m) return null;
     switch (m.estado) {
       case 'VERIFICADO':
         return (
@@ -1506,6 +1528,29 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
+      {/* Estilo CSS inyectado para asegurar que al imprimir solo salga el acta oficial */}
+      <style>{`
+        @media print {
+          body * {
+            visibility: hidden !important;
+          }
+          .acta-imprimible-container, .acta-imprimible-container * {
+            visibility: visible !important;
+          }
+          .acta-imprimible-container {
+            position: absolute !important;
+            left: 0 !important;
+            top: 0 !important;
+            width: 100% !important;
+            margin: 0 !important;
+            padding: 20px !important;
+            box-shadow: none !important;
+            border: none !important;
+            background: white !important;
+          }
+        }
+      `}</style>
+
       {toast && (
         <div className="fixed bottom-5 right-5 z-50 max-w-md animate-bounce">
           <div
@@ -1596,9 +1641,9 @@ export default function App() {
               >
                 {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
                 <span>Pastor / Admin</span>
-                {(kpis.cantidadSolicitudesBorrado + (usuariosSistema.some(u => u.solicitudClave) ? 1 : 0)) > 0 && (
+                {(kpis.cantidadSolicitudesBorrado + ((usuariosSistema || []).some(u => u && u.solicitudClave) ? 1 : 0)) > 0 && (
                   <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-600 text-white animate-pulse">
-                    {kpis.cantidadSolicitudesBorrado + (usuariosSistema.some(u => u.solicitudClave) ? 1 : 0)}
+                    {kpis.cantidadSolicitudesBorrado + ((usuariosSistema || []).some(u => u && u.solicitudClave) ? 1 : 0)}
                   </span>
                 )}
               </button>
@@ -1902,9 +1947,10 @@ export default function App() {
                                 </div>
                               )}
 
-                              {recCompradores.length > 0 && (
+                              {Array.isArray(recCompradores) && recCompradores.length > 0 && (
                                 <div className="max-h-52 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200 p-2 space-y-2">
                                   {recCompradores.map((c) => {
+                                    if (!c) return null;
                                     const totalC = (Number(c.cantidad) || 0) * resumenFormUnidades.precio;
                                     const abonoC = c.estadoPago === 'PAGADO' ? totalC : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
                                     const saldoC = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalC - abonoC);
@@ -1914,7 +1960,7 @@ export default function App() {
                                         <div className="flex items-center justify-between gap-2">
                                           <input
                                             type="text"
-                                            value={c.nombre}
+                                            value={c.nombre || ''}
                                             onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'nombre', e.target.value)}
                                             className="font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 flex-1 text-xs"
                                             placeholder="Nombre..."
@@ -1935,7 +1981,7 @@ export default function App() {
                                             <input
                                               type="number"
                                               min="1"
-                                              value={c.cantidad}
+                                              value={c.cantidad || 1}
                                               onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'cantidad', e.target.value)}
                                               className="w-16 bg-white border border-slate-300 rounded px-2 py-1 font-bold text-center text-xs"
                                             />
@@ -2014,21 +2060,23 @@ export default function App() {
                           <p className="text-xs text-slate-500">Supervisa tus unidades, abonos y deudores en tiempo real.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
-                          {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} actividades
+                          {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} actividades
                         </span>
                       </div>
 
                       <div className="space-y-4">
-                        {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length === 0 ? (
+                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                             <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía por ti.</p>
                           </div>
                         ) : (
-                          movimientos
-                            .filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre)
+                          (movimientos || [])
+                            .filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre)
                             .map((item) => {
+                              if (!item) return null;
                               const inv = calcularResumenInventario(item);
                               const isExpanded = !!expandedRows[item.id];
+                              const totalReportadoItem = Number(item.montoReportado || 0) + Number(item.ultimoAbonoReportado || 0);
 
                               return (
                                 <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
@@ -2046,9 +2094,9 @@ export default function App() {
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
                                       <div className="text-right">
-                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Recaudado total:</span>
+                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Recaudado Total:</span>
                                         <span className="text-lg font-extrabold text-slate-900">
-                                          {formatCOP(item.montoReportado)}
+                                          {formatCOP(totalReportadoItem)}
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
@@ -2111,7 +2159,7 @@ export default function App() {
                                         </div>
                                       </div>
 
-                                      {item.compradores && item.compradores.length > 0 && (
+                                      {Array.isArray(item.compradores) && item.compradores.length > 0 && (
                                         <div>
                                           <button
                                             type="button"
@@ -2125,7 +2173,8 @@ export default function App() {
                                           {isExpanded && (
                                             <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-2 space-y-2">
                                               {item.compradores.map((c) => {
-                                                const totalComp = c.cantidad * inv.precioUnitario;
+                                                if (!c) return null;
+                                                const totalComp = (Number(c.cantidad) || 0) * inv.precioUnitario;
                                                 const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
                                                 const saldoPendiente = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalComp - abonoActual);
 
@@ -2291,7 +2340,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={handleExportCSV}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
+                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Descargar Excel
@@ -2395,7 +2444,7 @@ export default function App() {
                     }`}
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    <span>Libro Único Completo ({movimientos.length})</span>
+                    <span>Libro Único Completo ({(movimientos || []).length})</span>
                   </button>
                 </div>
 
@@ -2408,14 +2457,14 @@ export default function App() {
                           Solicitudes de Deudas Incobrables (Dar de Baja)
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {movimientos
-                            .filter((m) => m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c.solicitudIncobrable))
+                          {(movimientos || [])
+                            .filter((m) => m && m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c && c.solicitudIncobrable))
                             .flatMap((item) => {
                               const precio = Number(item.precioUnitario) || 0;
-                              return item.compradores
-                                .filter((c) => c.solicitudIncobrable)
+                              return (item.compradores || [])
+                                .filter((c) => c && c.solicitudIncobrable)
                                 .map((c) => {
-                                  const totalC = c.cantidad * precio;
+                                  const totalC = (Number(c.cantidad) || 0) * precio;
                                   return (
                                     <div key={`${item.id}-${c.id}`} className="bg-white p-4 rounded-xl border border-amber-300 shadow-xs flex flex-col justify-between gap-3">
                                       <div>
@@ -2457,14 +2506,15 @@ export default function App() {
                       <p className="text-xs text-slate-500 mb-4">Recibe el dinero en efectivo o transferencia, audita arqueos y autoriza correcciones si es necesario.</p>
 
                       <div className="space-y-4">
-                        {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
+                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                             <p className="text-sm font-semibold text-slate-600">No hay recaudos enviados por los recaudadores todavía.</p>
                           </div>
                         ) : (
-                          movimientos
-                            .filter((m) => m.tipo === 'INGRESO')
+                          (movimientos || [])
+                            .filter((m) => m && m.tipo === 'INGRESO')
                             .map((item) => {
+                              if (!item) return null;
                               const inv = calcularResumenInventario(item);
                               const abonoOpendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
 
@@ -2748,6 +2798,7 @@ export default function App() {
                             </tr>
                           ) : (
                             movimientosFiltrados.map((m) => {
+                              if (!m) return null;
                               const esIngreso = m.tipo === 'INGRESO';
                               const montoMostrar = esIngreso ? Number(m.montoRecibido) || Number(m.montoReportado) : (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0);
 
@@ -2901,7 +2952,7 @@ export default function App() {
                   </div>
                   <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
                     <span className="text-[11px] font-bold uppercase text-slate-500 block">Cierres Realizados</span>
-                    <span className="text-xl font-extrabold text-indigo-950 mt-1 block">{cierresMensuales.length} meses</span>
+                    <span className="text-xl font-extrabold text-indigo-950 mt-1 block">{(cierresMensuales || []).length} meses</span>
                   </div>
                 </div>
 
@@ -2939,7 +2990,7 @@ export default function App() {
                   >
                     <Users className="w-4 h-4 text-emerald-400" />
                     <span>Gestión de Usuarios y Claves</span>
-                    {usuariosSistema.some(u => u.solicitudClave) && (
+                    {(usuariosSistema || []).some(u => u && u.solicitudClave) && (
                       <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
                         1
                       </span>
@@ -2986,74 +3037,77 @@ export default function App() {
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
                       <h3 className="text-base font-bold text-slate-900">Historial de Cierres Mensuales y Actas Pastorales</h3>
                       <div className="space-y-4">
-                        {cierresMensuales.length === 0 ? (
+                        {(cierresMensuales || []).length === 0 ? (
                           <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                             <p className="text-sm text-slate-500 font-semibold">No hay cierres mensuales ejecutados todavía.</p>
                           </div>
                         ) : (
-                          cierresMensuales.map((c) => (
-                            <div key={c.id} className="p-6 rounded-2xl border-2 border-indigo-950 bg-white shadow-md space-y-4">
-                              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                                <div>
-                                  <span className="text-xs font-mono font-bold bg-indigo-900 text-white px-2.5 py-1 rounded-md">
-                                    ACTA OFICIAL DE CIERRE MENSUAL: {c.mes}
-                                  </span>
-                                  <h4 className="font-extrabold text-slate-900 text-base mt-2">Iglesia - Informe Oficial de Tesorería</h4>
+                          (cierresMensuales || []).map((c) => {
+                            if (!c) return null;
+                            return (
+                              <div key={c.id} className="p-6 rounded-2xl border-2 border-indigo-950 bg-white shadow-md space-y-4 acta-imprimible-container">
+                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
+                                  <div>
+                                    <span className="text-xs font-mono font-bold bg-indigo-900 text-white px-2.5 py-1 rounded-md">
+                                      ACTA OFICIAL DE CIERRE MENSUAL: {c.mes}
+                                    </span>
+                                    <h4 className="font-extrabold text-slate-900 text-base mt-2">Iglesia - Informe Oficial de Tesorería</h4>
+                                  </div>
+                                  <div className="text-right text-xs text-slate-500">
+                                    <span>Fecha de corte: <strong>{c.fechaCierre}</strong></span>
+                                    <span className="block">Auditor Pastor: <strong>{c.responsableCierre}</strong></span>
+                                  </div>
                                 </div>
-                                <div className="text-right text-xs text-slate-500">
-                                  <span>Fecha de corte: <strong>{c.fechaCierre}</strong></span>
-                                  <span className="block">Auditor Pastor: <strong>{c.responsableCierre}</strong></span>
-                                </div>
-                              </div>
 
-                              <div className="text-sm text-slate-700 leading-relaxed italic bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                                "En el mes de <strong>{c.mes}</strong>, bajo la dirección del Señor y la supervisión pastoral, la tesorería de la iglesia ha mantenido cuentas claras, transparentes y fieles. Se han auditado un total de {c.cantidadMovimientos} movimientos, registrando ingresos verificados por <strong>{formatCOP(c.totalEntradas)}</strong> y salidas netas por <strong>{formatCOP(c.totalSalidas)}</strong>, dejando un balance neto de <strong>{formatCOP(c.balanceNeto)}</strong> para la obra y la gloria de Dios. Concluimos este período con un saldo real en caja de <strong>{formatCOP(c.saldoCajaFinal)}</strong>."
-                              </div>
+                                <div className="text-sm text-slate-700 leading-relaxed italic bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
+                                  "En el mes de <strong>{c.mes}</strong>, bajo la dirección del Señor y la supervisión pastoral, la tesorería de la iglesia ha mantenido cuentas claras, transparentes y fieles. Se han auditado un total de {c.cantidadMovimientos} movimientos, registrando ingresos verificados por <strong>{formatCOP(c.totalEntradas)}</strong> y salidas netas por <strong>{formatCOP(c.totalSalidas)}</strong>, dejando un balance neto de <strong>{formatCOP(c.balanceNeto)}</strong> para la obra y la gloria de Dios. Concluimos este período con un saldo real en caja de <strong>{formatCOP(c.saldoCajaFinal)}</strong>."
+                                </div>
 
-                              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                                <div>
-                                  <span className="text-slate-400 block">Total Entradas</span>
-                                  <span className="font-extrabold text-emerald-700 text-sm">{formatCOP(c.totalEntradas)}</span>
+                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
+                                  <div>
+                                    <span className="text-slate-400 block">Total Entradas</span>
+                                    <span className="font-extrabold text-emerald-700 text-sm">{formatCOP(c.totalEntradas)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block">Total Salidas</span>
+                                    <span className="font-extrabold text-rose-600 text-sm">{formatCOP(c.totalSalidas)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block">Balance Neto</span>
+                                    <span className="font-extrabold text-indigo-900 text-sm">{formatCOP(c.balanceNeto)}</span>
+                                  </div>
+                                  <div>
+                                    <span className="text-slate-400 block">Saldo Final Caja</span>
+                                    <span className="font-extrabold text-indigo-950 text-sm">{formatCOP(c.saldoCajaFinal)}</span>
+                                  </div>
                                 </div>
-                                <div>
-                                  <span className="text-slate-400 block">Total Salidas</span>
-                                  <span className="font-extrabold text-rose-600 text-sm">{formatCOP(c.totalSalidas)}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block">Balance Neto</span>
-                                  <span className="font-extrabold text-indigo-900 text-sm">{formatCOP(c.balanceNeto)}</span>
-                                </div>
-                                <div>
-                                  <span className="text-slate-400 block">Saldo Final Caja</span>
-                                  <span className="font-extrabold text-indigo-950 text-sm">{formatCOP(c.saldoCajaFinal)}</span>
-                                </div>
-                              </div>
 
-                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 mt-6 border-t border-slate-200 text-center">
-                                <div className="space-y-2">
-                                  <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
-                                  <p className="font-bold text-xs text-slate-800">Firma del Pastor / Administrador</p>
-                                  <p className="text-[11px] text-slate-500">{c.responsableCierre}</p>
+                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 mt-6 border-t border-slate-200 text-center">
+                                  <div className="space-y-2">
+                                    <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
+                                    <p className="font-bold text-xs text-slate-800">Firma del Pastor / Administrador</p>
+                                    <p className="text-[11px] text-slate-500">{c.responsableCierre}</p>
+                                  </div>
+                                  <div className="space-y-2">
+                                    <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
+                                    <p className="font-bold text-xs text-slate-800">Firma de Tesorería</p>
+                                    <p className="text-[11px] text-slate-500">Tesorero(a) Principal</p>
+                                  </div>
                                 </div>
-                                <div className="space-y-2">
-                                  <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
-                                  <p className="font-bold text-xs text-slate-800">Firma de Tesorería</p>
-                                  <p className="text-[11px] text-slate-500">Tesorero(a) Principal</p>
-                                </div>
-                              </div>
 
-                              <div className="flex justify-end pt-2">
-                                <button
-                                  type="button"
-                                  onClick={() => window.print()}
-                                  className="px-4 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs flex items-center gap-2 shadow-xs"
-                                >
-                                  <Download className="w-3.5 h-3.5" />
-                                  Imprimir Acta Oficial
-                                </button>
+                                <div className="flex justify-end pt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => window.print()}
+                                    className="px-4 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs flex items-center gap-2 shadow-xs"
+                                  >
+                                    <Download className="w-3.5 h-3.5" />
+                                    Imprimir Acta Oficial
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))
+                            );
+                          })
                         )}
                       </div>
                     </div>
@@ -3066,13 +3120,13 @@ export default function App() {
                     <p className="text-xs text-slate-500">Tesorería solo puede borrar registros del libro si el Pastor / Administrador lo autoriza previamente.</p>
 
                     <div className="space-y-3">
-                      {movimientos.filter((m) => m.solicitudBorrado && !m.borradoAutorizado).length === 0 ? (
+                      {(movimientos || []).filter((m) => m && m.solicitudBorrado && !m.borradoAutorizado).length === 0 ? (
                         <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                           <p className="text-sm text-slate-500 font-semibold">No hay solicitudes de borrado pendientes por aprobar.</p>
                         </div>
                       ) : (
-                        movimientos
-                          .filter((m) => m.solicitudBorrado && !m.borradoAutorizado)
+                        (movimientos || [])
+                          .filter((m) => m && m.solicitudBorrado && !m.borradoAutorizado)
                           .map((item) => (
                             <div key={item.id} className="p-4 rounded-xl border border-amber-300 bg-amber-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                               <div>
@@ -3114,10 +3168,10 @@ export default function App() {
                   <div className="space-y-6">
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                       <h3 className="text-base font-bold text-slate-900 mb-4">Solicitudes de Clave y Restablecimiento</h3>
-                      {usuariosSistema.some((u) => u.solicitudClave) ? (
+                      {(usuariosSistema || []).some((u) => u && u.solicitudClave) ? (
                         <div className="space-y-3">
-                          {usuariosSistema
-                            .filter((u) => u.solicitudClave)
+                          {(usuariosSistema || [])
+                            .filter((u) => u && u.solicitudClave)
                             .map((usr) => (
                               <div key={usr.id} className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between gap-4">
                                 <div>
@@ -3208,37 +3262,40 @@ export default function App() {
                       <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                         <h3 className="text-base font-bold text-slate-900 mb-4">Usuarios Registrados en el Sistema</h3>
                         <div className="space-y-3">
-                          {usuariosSistema.map((u) => (
-                            <div key={u.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
-                                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-emerald-100 text-emerald-900' : 'bg-indigo-100 text-indigo-900'}`}>
-                                    {u.rol}
-                                  </span>
+                          {(usuariosSistema || []).map((u) => {
+                            if (!u) return null;
+                            return (
+                              <div key={u.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2">
+                                    <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-emerald-100 text-emerald-900' : 'bg-indigo-100 text-indigo-900'}`}>
+                                      {u.rol}
+                                    </span>
+                                  </div>
+                                  <p className="text-xs text-slate-500 mt-0.5">Usuario: <strong className="text-slate-700">{u.usuario}</strong> | Clave: {u.clave}</p>
                                 </div>
-                                <p className="text-xs text-slate-500 mt-0.5">Usuario: <strong className="text-slate-700">{u.usuario}</strong> | Clave: {u.clave}</p>
-                              </div>
 
-                              <div className="flex items-center gap-2">
-                                <button
-                                  type="button"
-                                  onClick={() => handleToggleEstadoUsuario(u.id)}
-                                  className={`px-3 py-1.5 rounded-lg text-xs font-bold ${u.activo ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}
-                                >
-                                  {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => setEliminarUsuarioModal(u)}
-                                  className="text-slate-400 hover:text-rose-600 p-1"
-                                  title="Eliminar usuario"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleToggleEstadoUsuario(u.id)}
+                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold ${u.activo ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}
+                                  >
+                                    {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setEliminarUsuarioModal(u)}
+                                    className="text-slate-400 hover:text-rose-600 p-1"
+                                    title="Eliminar usuario"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
                               </div>
-                            </div>
-                          ))}
+                            );
+                          })}
                         </div>
                       </div>
                     </div>
@@ -3676,7 +3733,7 @@ export default function App() {
                   onClick={() => setShowRestablecerClaveModal(false)}
                   className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
                 >
-                  Cancelar
+                  Cancelar>
                 </button>
                 <button
                   type="submit"
