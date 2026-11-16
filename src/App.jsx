@@ -324,8 +324,6 @@ export default function App() {
 
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
-  const [edicionLibroModal, setEdicionLibroModal] = useState(null);
-  const [edicionLibroForm, setEdicionLibroForm] = useState({});
 
   const toggleExpandRow = (id) => {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
@@ -1424,10 +1422,11 @@ export default function App() {
           edicionAutorizada: false,
           solicitudEdicion: false,
           ultimoAbonoReportado: 0,
-          diferenciaArqueo: reportadoEsperado - contado,
-          notaTesorero: `${(notaArqueo || '').trim() ? `${notaArqueo.trim()} | ` : ''}${esExacto
-            ? `Recibido por ${nombreTesoreroActual} (${formatCOP(contado)}).`
-            : `${contado < reportadoEsperado ? `FALTANTE: ${formatCOP(reportadoEsperado - contado)}` : `SOBRANTE: ${formatCOP(contado - reportadoEsperado)}`} — contó ${formatCOP(contado)} de ${formatCOP(reportadoEsperado)}. Estado: DESCUADRE.`}`,
+          notaTesorero:
+            (notaArqueo || '').trim() ||
+            (esExacto
+              ? `Recibido por ${nombreTesoreroActual} (${formatCOP(contado)}).`
+              : `Recibido por ${nombreTesoreroActual}. Faltaron ${formatCOP(reportadoEsperado - contado)} (Contó ${formatCOP(contado)} de ${formatCOP(reportadoEsperado)}).`),
         };
       }
       return m;
@@ -1437,87 +1436,6 @@ export default function App() {
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
     setArqueoItem(null);
     showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre reflejado.');
-  };
-
-  const abrirEdicionDesdeLibro = (item) => {
-    if (!item || !item.edicionAutorizada) {
-      showToast('Este movimiento necesita autorización antes de poder modificarse.', 'warning');
-      return;
-    }
-    if (esMesCerrado(item.fecha)) {
-      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
-      return;
-    }
-    setEdicionLibroModal(item);
-    setEdicionLibroForm({
-      fecha: item.fecha || '',
-      actividad: item.actividad || '',
-      descripcion: item.descripcion || '',
-      responsable: item.responsable || '',
-      metodoPago: item.metodoPago || 'Efectivo',
-      monto: String(item.tipo === 'EGRESO' ? (item.montoSalida || 0) : (item.montoReportado || 0)),
-      sobrante: String(item.montoSobranteDevuelto || 0),
-      nota: ''
-    });
-  };
-
-  const guardarEdicionDesdeLibro = (e) => {
-    e.preventDefault();
-    if (!edicionLibroModal) return;
-    const original = edicionLibroModal;
-    if (!original.edicionAutorizada) {
-      showToast('La autorización de edición ya no está vigente.', 'error');
-      setEdicionLibroModal(null);
-      return;
-    }
-    if (esMesCerrado(original.fecha)) {
-      showToast('No se puede modificar un movimiento de un mes cerrado.', 'error');
-      setEdicionLibroModal(null);
-      return;
-    }
-    const monto = Number(edicionLibroForm.monto) || 0;
-    const sobrante = Number(edicionLibroForm.sobrante) || 0;
-    if (!edicionLibroForm.fecha || !edicionLibroForm.actividad.trim() ||
-        !edicionLibroForm.descripcion.trim() || !edicionLibroForm.responsable.trim() || monto <= 0) {
-      showToast('Completa los datos obligatorios y un valor mayor que cero.', 'error');
-      return;
-    }
-    if (original.tipo === 'EGRESO' && (sobrante < 0 || sobrante >= monto)) {
-      showToast('El sobrante devuelto debe ser menor que el valor entregado.', 'error');
-      return;
-    }
-
-    const nombreEditor = usuarioLogueadoTesorero?.nombre || usuarioLogueadoAdmin?.nombre || 'Usuario autorizado';
-    const actualizados = (movimientos || []).map((m) => {
-      if (!m || m.id !== original.id) return m;
-      const actualizado = {
-        ...m,
-        fecha: edicionLibroForm.fecha,
-        actividad: edicionLibroForm.actividad.trim(),
-        descripcion: edicionLibroForm.descripcion.trim(),
-        responsable: edicionLibroForm.responsable.trim(),
-        metodoPago: edicionLibroForm.metodoPago,
-        edicionAutorizada: false,
-        solicitudEdicion: false,
-        motivoEdicion: '',
-        notaTesorero: `${m.notaTesorero || ''} [Modificación autorizada realizada por ${nombreEditor}${edicionLibroForm.nota.trim() ? `: ${edicionLibroForm.nota.trim()}` : ''}]`
-      };
-      if (m.tipo === 'EGRESO') {
-        actualizado.montoSalida = monto;
-        actualizado.montoSobranteDevuelto = sobrante;
-      } else {
-        actualizado.montoReportado = monto;
-        if (m.estado === 'VERIFICADO' || m.estado === 'DESCUADRE') {
-          actualizado.estado = monto === (Number(m.montoRecibido) || 0) ? 'VERIFICADO' : 'DESCUADRE';
-        }
-      }
-      return actualizado;
-    });
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    setEdicionLibroModal(null);
-    setEdicionLibroForm({});
-    showToast('Movimiento modificado y guardado en el Libro Único. La autorización quedó consumida.');
   };
 
   const handleCerrarRecaudoSinMasNovedad = (item) => {
@@ -1730,11 +1648,8 @@ export default function App() {
             border: none !important;
             background: white !important;
           }
-          .no-print,
-          .acta-imprimible-container .no-print,
-          .acta-imprimible-container button {
+          .no-print {
             display: none !important;
-            visibility: hidden !important;
           }
         }
       `}</style>
@@ -2325,14 +2240,6 @@ export default function App() {
                                         )}
                                         {renderEstadoBadge(item)}
                                       </div>
-                                      {item.estado === 'DESCUADRE' && (
-                                        <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-right text-xs font-bold text-rose-800">
-                                          {Number(item.montoRecibido) < Number(item.montoReportado)
-                                            ? `FALTA ${formatCOP(Number(item.montoReportado) - Number(item.montoRecibido))}`
-                                            : `SOBRA ${formatCOP(Number(item.montoRecibido) - Number(item.montoReportado))}`}
-                                          <span className="block text-[10px] font-medium">Reportado: {formatCOP(item.montoReportado)} · Recibido: {formatCOP(item.montoRecibido)}</span>
-                                        </div>
-                                      )}
                                     </div>
                                   </div>
 
@@ -2782,14 +2689,6 @@ export default function App() {
                                         )}
                                         {renderEstadoBadge(item)}
                                       </div>
-                                      {item.estado === 'DESCUADRE' && (
-                                        <div className="mt-2 rounded-lg border border-rose-200 bg-rose-50 px-3 py-2 text-right text-xs font-bold text-rose-800">
-                                          {Number(item.montoRecibido) < Number(item.montoReportado)
-                                            ? `FALTA ${formatCOP(Number(item.montoReportado) - Number(item.montoRecibido))}`
-                                            : `SOBRA ${formatCOP(Number(item.montoRecibido) - Number(item.montoReportado))}`}
-                                          <span className="block text-[10px] font-medium">Reportado: {formatCOP(item.montoReportado)} · Recibido: {formatCOP(item.montoRecibido)}</span>
-                                        </div>
-                                      )}
                                     </div>
                                   </div>
 
@@ -3105,19 +3004,6 @@ export default function App() {
                                         >
                                           Solicitar Borrado
                                         </button>
-                                      )}
-                                      {m.edicionAutorizada && !mesCerradoItem && (
-                                        <button
-                                          type="button"
-                                          onClick={() => abrirEdicionDesdeLibro(m)}
-                                          className="ml-1 px-2 py-1 rounded bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-[10px]"
-                                          title="Modificar con autorización vigente"
-                                        >
-                                          Modificar
-                                        </button>
-                                      )}
-                                      {!mesCerradoItem && !m.edicionAutorizada && (
-                                        <span className="ml-1 text-[10px] text-slate-400">Sin autorización</span>
                                       )}
                                     </div>
                                   </td>
@@ -3665,55 +3551,6 @@ export default function App() {
                 >
                   Guardar Arqueo
                 </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {edicionLibroModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full p-6 space-y-4 animate-in fade-in zoom-in max-h-[90vh] overflow-y-auto">
-            <h3 className="font-bold text-base text-slate-900">Modificar movimiento autorizado</h3>
-            <p className="text-xs text-slate-500">Registro {edicionLibroModal.id}. Esta modificación consume la autorización y queda anotada en el historial.</p>
-            <form onSubmit={guardarEdicionDesdeLibro} className="space-y-3">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Fecha</label>
-                  <input type="date" required value={edicionLibroForm.fecha || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, fecha:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm" />
-                </div>
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">Actividad / Categoría</label>
-                  <input required value={edicionLibroForm.actividad || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, actividad:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm" />
-                </div>
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Descripción</label>
-                <input required value={edicionLibroForm.descripcion || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, descripcion:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm" />
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Responsable</label>
-                <input required value={edicionLibroForm.responsable || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, responsable:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm" />
-              </div>
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                <div>
-                  <label className="block text-xs font-bold text-slate-600 mb-1">{edicionLibroModal.tipo === 'EGRESO' ? 'Valor entregado' : 'Valor reportado'} ($)</label>
-                  <input type="number" min="1" required value={edicionLibroForm.monto || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, monto:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold" />
-                </div>
-                {edicionLibroModal.tipo === 'EGRESO' && (
-                  <div>
-                    <label className="block text-xs font-bold text-slate-600 mb-1">Sobrante devuelto a caja ($)</label>
-                    <input type="number" min="0" value={edicionLibroForm.sobrante || '0'} onChange={(e) => setEdicionLibroForm(p => ({...p, sobrante:e.target.value}))} className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-bold text-emerald-700" />
-                  </div>
-                )}
-              </div>
-              <div>
-                <label className="block text-xs font-bold text-slate-600 mb-1">Observación de la modificación</label>
-                <input value={edicionLibroForm.nota || ''} onChange={(e) => setEdicionLibroForm(p => ({...p, nota:e.target.value}))} placeholder="Motivo o detalle del cambio" className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm" />
-              </div>
-              <div className="flex gap-2 pt-2">
-                <button type="button" onClick={() => setEdicionLibroModal(null)} className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs">Cancelar</button>
-                <button type="submit" className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs">Guardar modificación</button>
               </div>
             </form>
           </div>
