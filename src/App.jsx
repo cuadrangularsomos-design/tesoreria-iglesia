@@ -229,6 +229,13 @@ export default function App() {
     }
   };
 
+  // Verificador si un mes está cerrado oficialmente
+  const esMesCerrado = (fechaStr) => {
+    if (!fechaStr) return false;
+    const mesKey = fechaStr.substring(0, 7); // 'AAAA-MM'
+    return (cierresMensuales || []).some(c => c && c.mes === mesKey);
+  };
+
   const [activeRole, setActiveRole] = useState('RECAUDADOR'); 
   const [adminTab, setAdminTab] = useState('AUDITORIA');
   const [mesCierreInput, setMesCierreInput] = useState(() => new Date().toISOString().substring(0, 7));
@@ -326,6 +333,10 @@ export default function App() {
   const handleEnviarSolicitudBorrado = (e) => {
     e.preventDefault();
     if (!solicitudBorradoModal) return;
+    if (esMesCerrado(solicitudBorradoModal.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede modificar.', 'error');
+      return;
+    }
     const motivo = motivoBorradoInput.trim();
     if (!motivo) {
       showToast('Escribe el motivo del borrado.', 'error');
@@ -381,6 +392,11 @@ export default function App() {
 
   const handleEliminarRegistroLibro = () => {
     if (!eliminarItemModal) return;
+    if (esMesCerrado(eliminarItemModal.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      setEliminarItemModal(null);
+      return;
+    }
     const actualizados = (movimientos || []).filter((m) => m && m.id !== eliminarItemModal.id);
     setMovimientos(actualizados);
     guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
@@ -482,6 +498,13 @@ export default function App() {
     setCierresMensuales(actualizadosCierres);
     guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
     showToast(`¡Cierre oficial del mes ${mesCierreInput} ejecutado y sellado por el Pastor con éxito!`);
+  };
+
+  const handleReabrirMesPastor = (mesKey) => {
+    const actualizadosCierres = (cierresMensuales || []).filter(c => c && c.mes !== mesKey);
+    setCierresMensuales(actualizadosCierres);
+    guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
+    showToast(`El mes ${mesKey} ha sido reabierto por el Pastor. Ya se permiten modificaciones.`, 'warning');
   };
 
   const handleCambiarClavePropiaRecaudador = (e) => {
@@ -678,7 +701,7 @@ export default function App() {
   }, [recCantidadProducida, recPrecioUnitario, recCompradores]);
 
   const handleAgregarCompradorForm = () => {
-    const nombre = nuevoCompNombre.trim();
+    const nombre = (nuevoCompNombre || '').trim();
     const cant = Number(nuevoCompCantidad) || 0;
     const producidas = Number(recCantidadProducida) || 0;
     const precio = Number(recPrecioUnitario) || 0;
@@ -728,7 +751,11 @@ export default function App() {
   const handleEnviarSolicitudIncobrable = (e) => {
     e.preventDefault();
     if (!solicitudIncobrableModal) return;
-    const motivo = motivoIncobrableInput.trim();
+    if (esMesCerrado(solicitudIncobrableModal.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede modificar.', 'error');
+      return;
+    }
+    const motivo = (motivoIncobrableInput || '').trim();
     if (!motivo) {
       showToast('Escribe el motivo por el cual la deuda es incobrable.', 'error');
       return;
@@ -764,6 +791,11 @@ export default function App() {
   };
 
   const handleTesoreroResolverIncobrable = (movimientoId, compradorId, aprobar) => {
+    const movTarget = (movimientos || []).find(m => m && m.id === movimientoId);
+    if (movTarget && esMesCerrado(movTarget.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede modificar.', 'error');
+      return;
+    }
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
     const actualizados = (movimientos || []).map((m) => {
@@ -816,9 +848,13 @@ export default function App() {
 
   const handleRegistrarRecaudo = (e) => {
     e.preventDefault();
+    if (esMesCerrado(recFecha)) {
+      showToast('No se pueden registrar ni modificar recaudos en un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const nombreResponsable = usuarioLogueadoRecaudador ? usuarioLogueadoRecaudador.nombre : 'Recaudador';
     
-    const actividadFinal = recActividadLibre.trim();
+    const actividadFinal = (recActividadLibre || '').trim();
     if (!actividadFinal) {
       showToast('Escribe el nombre de la actividad.', 'error');
       return;
@@ -829,10 +865,15 @@ export default function App() {
       const precio = Number(recPrecioUnitario) || 0;
       const valorRecaudadoEnMano = resumenFormUnidades.plataRecaudada;
       const descFinal =
-        recDescripcion.trim() ||
+        (recDescripcion || '').trim() ||
         `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
 
       if (editingRecaudoId) {
+        const itemEdit = movimientos.find(m => m && m.id === editingRecaudoId);
+        if (itemEdit && esMesCerrado(itemEdit.fecha)) {
+          showToast('Este registro pertenece a un mes cerrado oficialmente.', 'error');
+          return;
+        }
         const actualizados = (movimientos || []).map((m) =>
           m && m.id === editingRecaudoId
             ? {
@@ -902,6 +943,11 @@ export default function App() {
     }
 
     if (editingRecaudoId) {
+      const itemEdit = movimientos.find(m => m && m.id === editingRecaudoId);
+      if (itemEdit && esMesCerrado(itemEdit.fecha)) {
+        showToast('Este registro pertenece a un mes cerrado oficialmente.', 'error');
+        return;
+      }
       const actualizados = (movimientos || []).map((m) =>
         m && m.id === editingRecaudoId
           ? {
@@ -957,6 +1003,10 @@ export default function App() {
 
   const handleIniciarEdicion = (item) => {
     if (!item) return;
+    if (esMesCerrado(item.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede editar.', 'error');
+      return;
+    }
     if (!item.edicionAutorizada) {
       showToast('Necesitas solicitar autorización de edición a Tesorería.', 'warning');
       return;
@@ -982,7 +1032,11 @@ export default function App() {
   const handleEnviarSolicitudEdicion = (e) => {
     e.preventDefault();
     if (!solicitudEdicionModal) return;
-    const motivo = motivoSolicitudEdicion.trim();
+    if (esMesCerrado(solicitudEdicionModal.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
+    const motivo = (motivoSolicitudEdicion || '').trim();
     if (!motivo) return;
 
     const actualizados = (movimientos || []).map((m) =>
@@ -997,6 +1051,10 @@ export default function App() {
 
   const handleAutorizarEdicionTesorero = (item, aprobar) => {
     if (!item) return;
+    if (esMesCerrado(item.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const actualizados = (movimientos || []).map((m) =>
       m && m.id === item.id
         ? {
@@ -1016,6 +1074,10 @@ export default function App() {
 
   const openAbonoModal = (movimiento, comprador) => {
     if (!movimiento || !comprador) return;
+    if (esMesCerrado(movimiento.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede abonar.', 'error');
+      return;
+    }
     const precio = Number(movimiento.precioUnitario) || 0;
     const totalComp = (Number(comprador.cantidad) || 0) * precio;
     const abonadoActual =
@@ -1035,6 +1097,11 @@ export default function App() {
   const handleConfirmarAbono = (e) => {
     e.preventDefault();
     if (!abonoModal) return;
+    const movTarget = movimientos.find(m => m && m.id === abonoModal.movimientoId);
+    if (movTarget && esMesCerrado(movTarget.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const abonoNuevo = Number(valorAbonoInput.toString().replace(/\D/g, '')) || 0;
     if (abonoNuevo <= 0) return;
 
@@ -1092,6 +1159,11 @@ export default function App() {
   };
 
   const handleSaldarTodoComprador = (movimientoId, compradorId) => {
+    const movTarget = movimientos.find(m => m && m.id === movimientoId);
+    if (movTarget && esMesCerrado(movTarget.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede modificar.', 'error');
+      return;
+    }
     let valorAbonadoExtra = 0;
     const actualizados = (movimientos || []).map((m) => {
       if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
@@ -1228,8 +1300,8 @@ export default function App() {
 
   const handleRecaudadorLogin = (e) => {
     e.preventDefault();
-    const uInput = recUserLoginInput.trim().toLowerCase();
-    const pInput = recPassLoginInput.trim();
+    const uInput = (recUserLoginInput || '').trim().toLowerCase();
+    const pInput = (recPassLoginInput || '').trim();
 
     const encontrado = (usuariosSistema || []).find(
       (u) => u && u.rol === 'RECAUDADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
@@ -1254,8 +1326,8 @@ export default function App() {
 
   const handleTesoreroLogin = (e) => {
     e.preventDefault();
-    const uInput = tesUserLoginInput.trim().toLowerCase();
-    const pInput = tesPassLoginInput.trim();
+    const uInput = (tesUserLoginInput || '').trim().toLowerCase();
+    const pInput = (tesPassLoginInput || '').trim();
 
     const encontrado = (usuariosSistema || []).find(
       (u) => u && u.rol === 'TESORERO' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
@@ -1280,8 +1352,8 @@ export default function App() {
 
   const handleAdminLogin = (e) => {
     e.preventDefault();
-    const uInput = adminUserLoginInput.trim().toLowerCase();
-    const pInput = adminPassLoginInput.trim();
+    const uInput = (adminUserLoginInput || '').trim().toLowerCase();
+    const pInput = (adminPassLoginInput || '').trim();
 
     const encontrado = (usuariosSistema || []).find(
       (u) => u && u.rol === 'ADMINISTRADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
@@ -1306,6 +1378,10 @@ export default function App() {
 
   const openArqueoModal = (item) => {
     if (!item) return;
+    if (esMesCerrado(item.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor. No se puede realizar arqueo.', 'error');
+      return;
+    }
     setArqueoItem(item);
     const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
     setMontoFisicoContado(String(montoPendienteARecibir));
@@ -1315,6 +1391,10 @@ export default function App() {
   const handleConfirmarArqueo = (e) => {
     e.preventDefault();
     if (!arqueoItem) return;
+    if (esMesCerrado(arqueoItem.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
     const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 ? Number(arqueoItem.ultimoAbonoReportado) : Number(arqueoItem.montoReportado || 0);
     const esExacto = contado === reportadoEsperado;
@@ -1338,7 +1418,7 @@ export default function App() {
           solicitudEdicion: false,
           ultimoAbonoReportado: 0,
           notaTesorero:
-            notaArqueo.trim() ||
+            (notaArqueo || '').trim() ||
             (esExacto
               ? `Recibido por ${nombreTesoreroActual} (${formatCOP(contado)}).`
               : `Recibido por ${nombreTesoreroActual}. Faltaron ${formatCOP(reportadoEsperado - contado)}.`),
@@ -1355,6 +1435,10 @@ export default function App() {
 
   const handleCerrarRecaudoSinMasNovedad = (item) => {
     if (!item) return;
+    if (esMesCerrado(item.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
     const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
 
@@ -1385,6 +1469,10 @@ export default function App() {
 
   const handleAprobarAjusteDescuadre = (item) => {
     if (!item) return;
+    if (esMesCerrado(item.fecha)) {
+      showToast('Este registro pertenece a un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const actualizados = (movimientos || []).map((m) => {
       if (m && m.id === item.id) {
         return {
@@ -1404,6 +1492,10 @@ export default function App() {
 
   const handleRegistrarEgreso = (e) => {
     e.preventDefault();
+    if (esMesCerrado(egrFecha)) {
+      showToast('No se pueden registrar egresos en un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
     const valorSalida = Number(egrMonto.toString().replace(/\D/g, ''));
     const sobrante = Number(egrSobranteDevuelto.toString().replace(/\D/g, '')) || 0;
 
@@ -1432,7 +1524,7 @@ export default function App() {
       montoSalida: valorSalida,
       montoSobranteDevuelto: sobrante,
       estado: 'EGRESO_REGISTRADO',
-      notaTesorero: egrNota.trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
+      notaTesorero: (egrNota || '').trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
       ultimoAbonoReportado: 0
     };
 
@@ -1492,43 +1584,46 @@ export default function App() {
 
   const renderEstadoBadge = (m) => {
     if (!m) return null;
-    switch (m.estado) {
-      case 'VERIFICADO':
-        return (
+    const mesCerradoActual = esMesCerrado(m.fecha);
+
+    return (
+      <div className="flex items-center gap-1.5 flex-wrap justify-end">
+        {mesCerradoActual && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
+            <Lock className="w-3 h-3 text-slate-600" />
+            Mes Cerrado
+          </span>
+        )}
+        {m.estado === 'VERIFICADO' && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-emerald-100 text-emerald-800 border border-emerald-200">
             <CheckCircle2 className="w-3.5 h-3.5 text-emerald-600" />
             Recibido / Verificado
           </span>
-        );
-      case 'PENDIENTE':
-        return (
+        )}
+        {m.estado === 'PENDIENTE' && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-amber-100 text-amber-800 border border-amber-200">
             <Clock className="w-3.5 h-3.5 text-amber-600" />
             Pendiente por recibir
           </span>
-        );
-      case 'DESCUADRE':
-        return (
+        )}
+        {m.estado === 'DESCUADRE' && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-rose-100 text-rose-800 border border-rose-200">
             <AlertTriangle className="w-3.5 h-3.5 text-rose-600" />
             Descuadre en revisión
           </span>
-        );
-      case 'EGRESO_REGISTRADO':
-        return (
+        )}
+        {m.estado === 'EGRESO_REGISTRADO' && (
           <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-semibold bg-slate-100 text-slate-700 border border-slate-200">
             <ArrowDownRight className="w-3.5 h-3.5 text-rose-500" />
             Salida de Caja
           </span>
-        );
-      default:
-        return null;
-    }
+        )}
+      </div>
+    );
   };
 
   return (
     <div className="min-h-screen bg-slate-50 text-slate-800 font-sans pb-16">
-      {/* Estilo CSS inyectado para asegurar que al imprimir solo salga el acta oficial */}
       <style>{`
         @media print {
           body * {
@@ -1793,6 +1888,13 @@ export default function App() {
                         </p>
                       </div>
 
+                      {esMesCerrado(recFecha) && (
+                        <div className="bg-rose-50 border-b border-rose-200 p-3 text-xs text-rose-800 font-bold flex items-center gap-2">
+                          <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                          <span>Este mes ya está cerrado oficialmente por el Pastor. No se permiten registros ni cambios.</span>
+                        </div>
+                      )}
+
                       <form onSubmit={handleRegistrarRecaudo} className="p-6 space-y-4">
                         <div className="grid grid-cols-2 gap-2 p-1 bg-slate-100 rounded-xl border border-slate-200">
                           <button
@@ -2041,8 +2143,9 @@ export default function App() {
 
                         <button
                           type="submit"
+                          disabled={esMesCerrado(recFecha)}
                           className={`w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 ${
-                            editingRecaudoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
+                            esMesCerrado(recFecha) ? 'bg-slate-400 cursor-not-allowed' : editingRecaudoId ? 'bg-amber-600 hover:bg-amber-700' : 'bg-emerald-600 hover:bg-emerald-700'
                           }`}
                         >
                           <PlusCircle className="w-4 h-4" />
@@ -2077,6 +2180,7 @@ export default function App() {
                               const inv = calcularResumenInventario(item);
                               const isExpanded = !!expandedRows[item.id];
                               const totalReportadoItem = Number(item.montoReportado || 0) + Number(item.ultimoAbonoReportado || 0);
+                              const mesCerradoItem = esMesCerrado(item.fecha);
 
                               return (
                                 <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
@@ -2100,29 +2204,31 @@ export default function App() {
                                         </span>
                                       </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
-                                        {item.edicionAutorizada ? (
-                                          <button
-                                            type="button"
-                                            onClick={() => handleIniciarEdicion(item)}
-                                            className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
-                                          >
-                                            Editar (Autorizado)
-                                          </button>
-                                        ) : item.solicitudEdicion ? (
-                                          <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
-                                            Esperando Permiso
-                                          </span>
-                                        ) : (
-                                          <button
-                                            type="button"
-                                            onClick={() => {
-                                              setSolicitudEdicionModal(item);
-                                              setMotivoSolicitudEdicion('');
-                                            }}
-                                            className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200"
-                                          >
-                                            Solicitar Edición
-                                          </button>
+                                        {!mesCerradoItem && (
+                                          item.edicionAutorizada ? (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleIniciarEdicion(item)}
+                                              className="px-2.5 py-1 rounded-full text-xs font-bold bg-emerald-600 text-white animate-pulse"
+                                            >
+                                              Editar (Autorizado)
+                                            </button>
+                                          ) : item.solicitudEdicion ? (
+                                            <span className="px-2.5 py-1 rounded-full text-xs font-bold bg-amber-100 text-amber-800">
+                                              Esperando Permiso
+                                            </span>
+                                          ) : (
+                                            <button
+                                              type="button"
+                                              onClick={() => {
+                                                setSolicitudEdicionModal(item);
+                                                setMotivoSolicitudEdicion('');
+                                              }}
+                                              className="px-2.5 py-1 rounded-full text-xs font-bold bg-slate-100 text-slate-700 border border-slate-300 hover:bg-slate-200"
+                                            >
+                                              Solicitar Edición
+                                            </button>
+                                          )
                                         )}
                                         {renderEstadoBadge(item)}
                                       </div>
@@ -2198,7 +2304,7 @@ export default function App() {
                                                       )}
                                                     </div>
                                                     <div className="flex items-center gap-2 flex-wrap justify-end">
-                                                      {c.estadoPago !== 'INCOBRABLE' && !c.solicitudIncobrable && saldoPendiente > 0 && (
+                                                      {!mesCerradoItem && c.estadoPago !== 'INCOBRABLE' && !c.solicitudIncobrable && saldoPendiente > 0 && (
                                                         <>
                                                           <button
                                                             type="button"
@@ -2461,6 +2567,7 @@ export default function App() {
                             .filter((m) => m && m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c && c.solicitudIncobrable))
                             .flatMap((item) => {
                               const precio = Number(item.precioUnitario) || 0;
+                              const mesCerradoItem = esMesCerrado(item.fecha);
                               return (item.compradores || [])
                                 .filter((c) => c && c.solicitudIncobrable)
                                 .map((c) => {
@@ -2477,22 +2584,28 @@ export default function App() {
                                           <strong>Motivo:</strong> "{c.motivoIncobrable}"
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
-                                        <button
-                                          type="button"
-                                          onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, true)}
-                                          className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs"
-                                        >
-                                          Aprobar como Incobrable ✕
-                                        </button>
-                                        <button
-                                          type="button"
-                                          onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, false)}
-                                          className="py-2 px-3 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs"
-                                        >
-                                          Rechazar
-                                        </button>
-                                      </div>
+                                      {!mesCerradoItem ? (
+                                        <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, true)}
+                                            className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs"
+                                          >
+                                            Aprobar como Incobrable ✕
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, false)}
+                                            className="py-2 px-3 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs"
+                                          >
+                                            Rechazar
+                                          </button>
+                                        </div>
+                                      ) : (
+                                        <span className="text-xs font-bold text-rose-700 bg-rose-50 p-2 rounded text-center">
+                                          Mes cerrado por el Pastor. No modificable.
+                                        </span>
+                                      )}
                                     </div>
                                   );
                                 });
@@ -2517,6 +2630,7 @@ export default function App() {
                               if (!item) return null;
                               const inv = calcularResumenInventario(item);
                               const abonoOpendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+                              const mesCerradoItem = esMesCerrado(item.fecha);
 
                               return (
                                 <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
@@ -2548,7 +2662,7 @@ export default function App() {
                                         )}
                                       </div>
                                       <div className="flex items-center gap-2 flex-wrap justify-end">
-                                        {item.solicitudEdicion && !item.edicionAutorizada && (
+                                        {!mesCerradoItem && item.solicitudEdicion && !item.edicionAutorizada && (
                                           <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl text-xs">
                                             <span className="font-bold text-amber-900">Pide Editar: "{item.motivoEdicion}"</span>
                                             <button
@@ -2591,33 +2705,41 @@ export default function App() {
                                     </div>
 
                                     <div className="flex items-center gap-2 flex-wrap">
-                                      {item.estado === 'PENDIENTE' && (
+                                      {!mesCerradoItem ? (
                                         <>
-                                          <button
-                                            type="button"
-                                            onClick={() => openArqueoModal(item)}
-                                            className="px-3.5 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
-                                          >
-                                            <Calculator className="w-3.5 h-3.5 text-emerald-400" />
-                                            Recibir y Arqueo ({formatCOP(abonoOpendienteARecibir)})
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCerrarRecaudoSinMasNovedad(item)}
-                                            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
-                                          >
-                                            Recibir Conforme ✓
-                                          </button>
+                                          {item.estado === 'PENDIENTE' && (
+                                            <>
+                                              <button
+                                                type="button"
+                                                onClick={() => openArqueoModal(item)}
+                                                className="px-3.5 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
+                                              >
+                                                <Calculator className="w-3.5 h-3.5 text-emerald-400" />
+                                                Recibir y Arqueo ({formatCOP(abonoOpendienteARecibir)})
+                                              </button>
+                                              <button
+                                                type="button"
+                                                onClick={() => handleCerrarRecaudoSinMasNovedad(item)}
+                                                className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
+                                              >
+                                                Recibir Conforme ✓
+                                              </button>
+                                            </>
+                                          )}
+                                          {item.estado === 'DESCUADRE' && (
+                                            <button
+                                              type="button"
+                                              onClick={() => handleAprobarAjusteDescuadre(item)}
+                                              className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
+                                            >
+                                              Aprobar Ajuste y Cerrar
+                                            </button>
+                                          )}
                                         </>
-                                      )}
-                                      {item.estado === 'DESCUADRE' && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAprobarAjusteDescuadre(item)}
-                                          className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
-                                        >
-                                          Aprobar Ajuste y Cerrar
-                                        </button>
+                                      ) : (
+                                        <span className="text-xs font-bold text-rose-700 bg-rose-50 px-3 py-1.5 rounded-lg border border-rose-200">
+                                          Mes cerrado por el Pastor. Bloqueado.
+                                        </span>
                                       )}
                                     </div>
                                   </div>
@@ -2641,6 +2763,13 @@ export default function App() {
                         <p className="text-xs text-slate-500">Registra compras, servicios públicos, ayudas o gastos con opción de registrar sobrante devuelto.</p>
                       </div>
                     </div>
+
+                    {esMesCerrado(egrFecha) && (
+                      <div className="mb-4 bg-rose-50 border border-rose-200 p-3 rounded-xl text-xs text-rose-800 font-bold flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Este mes ya está cerrado oficialmente por el Pastor. No se pueden registrar egresos aquí.</span>
+                      </div>
+                    )}
 
                     <form onSubmit={handleRegistrarEgreso} className="space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
@@ -2734,7 +2863,10 @@ export default function App() {
 
                       <button
                         type="submit"
-                        className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-4"
+                        disabled={esMesCerrado(egrFecha)}
+                        className={`w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-4 ${
+                          esMesCerrado(egrFecha) ? 'bg-slate-400 cursor-not-allowed' : 'bg-rose-600 hover:bg-rose-700'
+                        }`}
                       >
                         <TrendingDown className="w-4 h-4" />
                         Registrar Egreso y Actualizar Caja
@@ -2801,6 +2933,7 @@ export default function App() {
                               if (!m) return null;
                               const esIngreso = m.tipo === 'INGRESO';
                               const montoMostrar = esIngreso ? Number(m.montoRecibido) || Number(m.montoReportado) : (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0);
+                              const mesCerradoItem = esMesCerrado(m.fecha);
 
                               return (
                                 <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
@@ -2831,7 +2964,9 @@ export default function App() {
                                   </td>
                                   <td className="p-3 text-center whitespace-nowrap">
                                     <div className="flex items-center justify-center gap-1.5">
-                                      {m.solicitudBorrado ? (
+                                      {mesCerradoItem ? (
+                                        <span className="text-[10px] font-bold text-slate-400">Mes Bloqueado</span>
+                                      ) : m.solicitudBorrado ? (
                                         <span className="px-2 py-1 bg-amber-100 text-amber-900 text-[10px] font-bold rounded">
                                           Esperando Pastor
                                         </span>
@@ -3008,7 +3143,7 @@ export default function App() {
                         <div>
                           <h3 className="text-xl font-bold text-slate-900">Ejecutar Cierre de Mes Oficial (Pastor)</h3>
                           <p className="text-sm text-slate-500 mt-1">
-                            Selecciona el mes a cerrar. El sistema auditará las entradas, salidas y generará el acta oficial con las palabras automáticas del pastor para la firma única de tesorería y pastor.
+                            Selecciona el mes a cerrar. Al cerrarlo, el sistema bloqueará automáticamente todas las modificaciones de ese período a menos que el Pastor lo vuelva a abrir.
                           </p>
                         </div>
 
@@ -3049,7 +3184,7 @@ export default function App() {
                                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
                                   <div>
                                     <span className="text-xs font-mono font-bold bg-indigo-900 text-white px-2.5 py-1 rounded-md">
-                                      ACTA OFICIAL DE CIERRE MENSUAL: {c.mes}
+                                      ACTA OFICIAL DE CIERRE MENSUAL: {c.mes} (CERRADO Y BLOQUEADO)
                                     </span>
                                     <h4 className="font-extrabold text-slate-900 text-base mt-2">Iglesia - Informe Oficial de Tesorería</h4>
                                   </div>
@@ -3095,7 +3230,16 @@ export default function App() {
                                   </div>
                                 </div>
 
-                                <div className="flex justify-end pt-2">
+                                <div className="flex items-center justify-between pt-2">
+                                  <button
+                                    type="button"
+                                    onClick={() => handleReabrirMesPastor(c.mes)}
+                                    className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs flex items-center gap-1.5 shadow-xs"
+                                  >
+                                    <Unlock className="w-3.5 h-3.5" />
+                                    Reabrir Mes (Permitir Cambios)
+                                  </button>
+
                                   <button
                                     type="button"
                                     onClick={() => window.print()}
@@ -3733,7 +3877,7 @@ export default function App() {
                   onClick={() => setShowRestablecerClaveModal(false)}
                   className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
                 >
-                  Cancelar>
+                  Cancelar
                 </button>
                 <button
                   type="submit"
