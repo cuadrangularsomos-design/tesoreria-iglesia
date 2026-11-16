@@ -38,7 +38,7 @@ import {
   KeyRound,
   HelpCircle,
   Settings,
-  Calendar
+  XCircle
 } from 'lucide-react';
 
 const formatCOP = (value) => {
@@ -143,7 +143,6 @@ const CATEGORIAS_EGRESO = [
 
 export default function App() {
   const [movimientos, setMovimientos] = useState([]);
-  const [cierresMensuales, setCierresMensuales] = useState([]);
   const [configuracionApp, setConfiguracionApp] = useState({
     titulo: 'Tesorería & Recaudos Eclesiásticos',
     subtitulo: 'Control Estricto de Recaudos, Abonos y Cierres en Tiempo Real • Supabase',
@@ -151,7 +150,7 @@ export default function App() {
   });
   
   const [usuariosSistema, setUsuariosSistema] = useState([
-    { id: 'US-0', nombre: 'Administrador / Pastor', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solictudClave: false, claveAutorizada: false },
+    { id: 'US-0', nombre: 'Administrador General', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-1', nombre: 'Tesorero Principal', usuario: 'tesorero', clave: '1234', rol: 'TESORERO', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-2', nombre: 'Hna. Marta Gómez', usuario: 'marta', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-3', nombre: 'Hno. Carlos Ruiz', usuario: 'carlos', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false }
@@ -162,7 +161,7 @@ export default function App() {
   useEffect(() => {
     supabase
       .from('estado_tesoreria')
-      .select('datos, usuarios, config, cierres')
+      .select('datos, usuarios, config')
       .eq('id', 1)
       .single()
       .then(({ data }) => {
@@ -170,7 +169,6 @@ export default function App() {
           if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
           if (data.usuarios && Array.isArray(data.usuarios)) setUsuariosSistema(data.usuarios);
           if (data.config) setConfiguracionApp({ ...configuracionApp, ...data.config });
-          if (data.cierres) setCierresMensuales(Array.isArray(data.cierres) ? data.cierres : []);
         }
         setCargandoNube(false);
       });
@@ -191,9 +189,6 @@ export default function App() {
             if (payload.new.config) {
               setConfiguracionApp(payload.new.config);
             }
-            if (payload.new.cierres) {
-              setCierresMensuales(Array.isArray(payload.new.cierres) ? payload.new.cierres : []);
-            }
           }
         }
       )
@@ -204,7 +199,7 @@ export default function App() {
     };
   }, []);
 
-  const guardarEnNube = (nuevosMovs, nuevosUsuarios, nuevaConfig, nuevosCierres) => {
+  const guardarEnNube = (nuevosMovs, nuevosUsuarios, nuevaConfig) => {
     if (cargandoNube) return;
     try {
       supabase
@@ -213,8 +208,7 @@ export default function App() {
           id: 1, 
           datos: nuevosMovs || movimientos, 
           usuarios: nuevosUsuarios || usuariosSistema,
-          config: nuevaConfig || configuracionApp,
-          cierres: nuevosCierres || cierresMensuales
+          config: nuevaConfig || configuracionApp
         })
         .then(({ error }) => {
           if (error) console.error('Error al guardar en Supabase:', error);
@@ -225,8 +219,6 @@ export default function App() {
   };
 
   const [activeRole, setActiveRole] = useState('RECAUDADOR'); 
-  const [adminTab, setAdminTab] = useState('AUDITORIA');
-  const [mesCierreInput, setMesCierreInput] = useState(() => new Date().toISOString().substring(0, 7));
   
   const [usuarioLogueadoRecaudador, setUsuarioLogueadoRecaudador] = useState(null);
   const [recUserLoginInput, setRecUserLoginInput] = useState('');
@@ -267,7 +259,7 @@ export default function App() {
       logoUrl: inputConfigLogo.trim()
     };
     setConfiguracionApp(nuevaConf);
-    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf);
     showToast('¡Encabezado, título y logo actualizados con éxito!');
   };
 
@@ -321,10 +313,6 @@ export default function App() {
 
   const [editingTesoreroMov, setEditingTesoreroMov] = useState(null);
   const [eliminarItemModal, setEliminarItemModal] = useState(null);
-  
-  // SOLICITUD DE BORRADO CONTROLADA POR EL PASTOR/ADMIN
-  const [solicitudBorradoModal, setSolicitudBorradoModal] = useState(null);
-  const [motivoBorradoInput, setMotivoBorradoInput] = useState('');
 
   const [tesoreroTab, setTesoreroTab] = useState('BANDEJA');
   const [arqueoItem, setArqueoItem] = useState(null);
@@ -348,74 +336,16 @@ export default function App() {
 
   const handleBorrarTodo = () => {
     setMovimientos([]);
-    setCierresMensuales([]);
     setShowBorrarTodoModal(false);
-    guardarEnNube([], usuariosSistema, configuracionApp, []);
+    guardarEnNube([], usuariosSistema, configuracionApp);
     showToast('Se han borrado todos los registros de la base de datos.', 'warning');
-  };
-
-  // TESORERÍA YA NO BORRA DIRECTAMENTE: Envía solicitud al pastor/admin
-  const handleEnviarSolicitudBorrado = (e) => {
-    e.preventDefault();
-    if (!solicitudBorradoModal) return;
-    const motivo = motivoBorradoInput.trim();
-    if (!motivo) {
-      showToast('Escribe el motivo del borrado.', 'error');
-      return;
-    }
-
-    const actualizados = movimientos.map((m) => {
-      if (m.id === solicitudBorradoModal.id) {
-        return {
-          ...m,
-          solicitudBorrado: true,
-          motivoBorrado: motivo,
-          solicitanteBorrado: usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorería'
-        };
-      }
-      return m;
-    });
-
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    setSolicitudBorradoModal(null);
-    setMotivoBorradoInput('');
-    showToast('Solicitud de borrado enviada al Pastor / Administrador.');
-  };
-
-  // PASTOR/ADMIN RESUELVE SOLICITUD DE BORRADO
-  const handleResolverBorradoAdmin = (item, autorizar) => {
-    const actualizados = movimientos.map((m) => {
-      if (m.id === item.id) {
-        if (autorizar) {
-          return {
-            ...m,
-            solicitudBorrado: false,
-            borradoAutorizado: true,
-            notaTesorero: `${m.notaTesorero || ''} [Pastor autorizó el borrado]`
-          };
-        } else {
-          return {
-            ...m,
-            solicitudBorrado: false,
-            borradoAutorizado: false,
-            motivoBorrado: '',
-            notaTesorero: `${m.notaTesorero || ''} [Pastor denegó el borrado]`
-          };
-        }
-      }
-      return m;
-    });
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    showToast(autorizar ? 'Borrado autorizado. Ya se puede eliminar del libro.' : 'Solicitud de borrado denegada.');
   };
 
   const handleEliminarRegistroLibro = () => {
     if (!eliminarItemModal) return;
     const actualizados = movimientos.filter((m) => m.id !== eliminarItemModal.id);
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setEliminarItemModal(null);
     showToast('Registro eliminado del libro correctamente.', 'warning');
   };
@@ -447,7 +377,7 @@ export default function App() {
 
     const actualizados = [...usuariosSistema, nuevoUser];
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setNuevoUserNombre('');
     setNuevoUserAlias('');
     setNuevoUserClave('');
@@ -462,7 +392,7 @@ export default function App() {
       return u;
     });
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     showToast('Estado del usuario actualizado.');
   };
 
@@ -484,7 +414,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setEditingUser(null);
     showToast('Usuario modificado correctamente.');
   };
@@ -500,44 +430,9 @@ export default function App() {
 
     const actualizados = usuariosSistema.filter(u => u.id !== eliminarUsuarioModal.id);
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setEliminarUsuarioModal(null);
     showToast('Usuario eliminado del sistema correctamente.', 'warning');
-  };
-
-  // EJECUCIÓN DE CIERRE DE MES EXCLUSIVA PARA EL PASTOR / ADMIN
-  const handleEjecutarCierreDeMes = (e) => {
-    e.preventDefault();
-    const movsDelMes = movimientos.filter(m => m.fecha && m.fecha.startsWith(mesCierreInput));
-    
-    let entradasMes = 0;
-    let salidasMes = 0;
-    movsDelMes.forEach(m => {
-      if (m.tipo === 'INGRESO') {
-        entradasMes += Number(m.montoRecibido) || Number(m.montoReportado) || 0;
-      } else if (m.tipo === 'EGRESO') {
-        salidasMes += Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0));
-      }
-    });
-
-    const nuevoCierre = {
-      id: 'CIERRE-' + mesCierreInput,
-      mes: mesCierreInput,
-      fechaCierre: new Date().toISOString().split('T')[0],
-      responsableCierre: usuarioLogueadoAdmin ? usuarioLogueadoAdmin.nombre : 'Pastor / Administrador',
-      totalEntradas: entradasMes,
-      totalSalidas: salidasMes,
-      balanceNeto: entradasMes - salidasMes,
-      cantidadMovimientos: movsDelMes.length,
-      saldoCajaFinal: kpis.saldoRealEnCaja
-    };
-
-    const sinDuplicados = cierresMensuales.filter(c => c.mes !== mesCierreInput);
-    const actualizadosCierres = [nuevoCierre, ...sinDuplicados];
-    
-    setCierresMensuales(actualizadosCierres);
-    guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
-    showToast(`¡Cierre oficial del mes ${mesCierreInput} ejecutado y sellado por el Pastor con éxito!`);
   };
 
   const handleCambiarClavePropiaRecaudador = (e) => {
@@ -561,7 +456,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setUsuarioLogueadoRecaudador({ ...usuarioLogueadoRecaudador, clave: claveNuevaRecInput.trim() });
     setShowCambioClaveRecaudadorModal(false);
     setClaveActualRecInput('');
@@ -590,7 +485,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setUsuarioLogueadoTesorero({ ...usuarioLogueadoTesorero, clave: claveNuevaTesInput.trim() });
     setShowCambioClaveTesoreroModal(false);
     setClaveActualTesInput('');
@@ -616,7 +511,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setShowOlvidoClaveModal(false);
     setUsuarioOlvidoInput('');
     showToast('Solicitud enviada al Administrador con éxito.', 'success');
@@ -634,7 +529,7 @@ export default function App() {
       return u;
     });
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     showToast(autorizar ? 'Cambio de clave autorizado para el usuario.' : 'Solicitud rechazada.');
   };
 
@@ -667,7 +562,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setShowRestablecerClaveModal(false);
     setUsuarioRestablecerAlias('');
     setNuevaClaveInput('');
@@ -832,7 +727,7 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setSolicitudIncobrableModal(null);
     setMotivoIncobrableInput('');
     showToast('Solicitud de "Incobrable" enviada a Tesorería con éxito.');
@@ -863,7 +758,7 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(aprobar ? 'Deuda aprobada como Incobrable / Condonada.' : 'Solicitud rechazada.');
   };
 
@@ -929,7 +824,7 @@ export default function App() {
             : m
         );
         setMovimientos(actualizados);
-        guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+        guardarEnNube(actualizados, usuariosSistema, configuracionApp);
         setEditingRecaudoId(null);
         setRecDescripcion('');
         setRecActividadLibre('');
@@ -960,7 +855,7 @@ export default function App() {
 
       const actualizados = [nuevoReg, ...movimientos];
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
       setRecDescripcion('');
       setRecActividadLibre('');
@@ -994,7 +889,7 @@ export default function App() {
           : m
       );
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setEditingRecaudoId(null);
       setRecDescripcion('');
       setRecActividadLibre('');
@@ -1021,7 +916,7 @@ export default function App() {
 
     const actualizados = [nuevoReg, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setRecDescripcion('');
     setRecActividadLibre('');
     setRecMonto('');
@@ -1061,7 +956,7 @@ export default function App() {
       m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Solicitud de edición enviada a Tesorería.');
     setSolicitudEdicionModal(null);
     setMotivoSolicitudEdicion('');
@@ -1081,7 +976,7 @@ export default function App() {
         : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(aprobar ? 'Edición autorizada.' : 'Solicitud rechazada.');
   };
 
@@ -1102,6 +997,7 @@ export default function App() {
     setValorAbonoInput(String(saldoPendiente));
   };
 
+  // MODIFICACIÓN 1: Si aún no ha entregado nada a Tesorería, el abono se suma al monto reportado principal
   const handleConfirmarAbono = (e) => {
     e.preventDefault();
     if (!abonoModal) return;
@@ -1154,11 +1050,12 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(`Abono de ${formatCOP(abonoNuevo)} actualizado en el total por entregar a Tesorería.`);
     setAbonoModal(null);
   };
 
+  // MODIFICACIÓN 2: Si aún no ha entregado nada, "Saldar Todo" también suma directamente al monto reportado principal
   const handleSaldarTodoComprador = (movimientoId, compradorId) => {
     let valorAbonadoExtra = 0;
     const actualizados = movimientos.map((m) => {
@@ -1197,7 +1094,7 @@ export default function App() {
       }
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Deuda saldada por completo. Total actualizado para entregar a Tesorería.');
   };
 
@@ -1237,13 +1134,10 @@ export default function App() {
     let cantidadDescuadres = 0;
     let cantidadSolicitudesEdicion = 0;
     let cantidadSolicitudesIncobrable = 0;
-    let cantidadSolicitudesBorrado = 0;
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
 
     movimientos.forEach((m) => {
-      if (m.solicitudBorrado && !m.borradoAutorizado) cantidadSolicitudesBorrado += 1;
-      
       if (m.tipo === 'INGRESO') {
         totalEntradasVerificadas += Number(m.montoRecibido) || 0;
 
@@ -1287,7 +1181,6 @@ export default function App() {
       cantidadDescuadres,
       cantidadSolicitudesEdicion,
       cantidadSolicitudesIncobrable,
-      cantidadSolicitudesBorrado,
       totalCarteraYSinVender,
     };
   }, [movimientos]);
@@ -1377,6 +1270,7 @@ export default function App() {
     setNotaArqueo(item.notaTesorero || '');
   };
 
+  // MODIFICACIÓN 3: Al hacer el arqueo, si había un abono acumulado extra, se consolida en el montoReportado total
   const handleConfirmarArqueo = (e) => {
     e.preventDefault();
     if (!arqueoItem) return;
@@ -1413,7 +1307,7 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setArqueoItem(null);
     showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre.');
   };
@@ -1443,7 +1337,7 @@ export default function App() {
       return m;
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Recaudo cerrado y verificado definitivamente en caja.');
   };
 
@@ -1461,7 +1355,7 @@ export default function App() {
       return m;
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Ajuste de descuadre aprobado y cerrado.');
   };
 
@@ -1500,7 +1394,7 @@ export default function App() {
 
     const actualizados = [nuevoEgreso, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
@@ -1676,10 +1570,10 @@ export default function App() {
                 }`}
               >
                 {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
-                <span>Pastor / Admin</span>
-                {(kpis.cantidadSolicitudesBorrado + (usuariosSistema.some(u => u.solicitudClave) ? 1 : 0)) > 0 && (
+                <span>Administrador</span>
+                {usuariosSistema.some(u => u.solicitudClave) && (
                   <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-600 text-white animate-pulse">
-                    {kpis.cantidadSolicitudesBorrado + (usuariosSistema.some(u => u.solicitudClave) ? 1 : 0)}
+                    !
                   </span>
                 )}
               </button>
@@ -2095,18 +1989,18 @@ export default function App() {
                           <p className="text-xs text-slate-500">Gestiona abonos de deudores, solicita dar de baja como incobrable y pide edición.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
-                          {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} registros
+                          {movimientos.filter((m) => m.tipo === 'INGRESO').length} registros
                         </span>
                       </div>
 
                       <div className="space-y-4">
-                        {movimientos.filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length === 0 ? (
+                        {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía por ti.</p>
+                            <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía.</p>
                           </div>
                         ) : (
                           movimientos
-                            .filter((m) => m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre)
+                            .filter((m) => m.tipo === 'INGRESO')
                             .map((item) => {
                               const inv = calcularResumenInventario(item);
                               const isExpanded = !!expandedRows[item.id];
@@ -2123,6 +2017,9 @@ export default function App() {
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
                                       <p className="text-xs text-slate-600 mt-1 font-medium">{item.descripcion}</p>
+                                      <p className="text-xs font-semibold text-indigo-950 mt-1">
+                                        Recaudador: {item.responsable} ({item.metodoPago})
+                                      </p>
                                     </div>
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
@@ -2878,7 +2775,7 @@ export default function App() {
                             <th className="py-3.5 px-4 font-bold text-right text-emerald-800">Entrada Real</th>
                             <th className="py-3.5 px-4 font-bold text-right text-rose-800">Salida Neta</th>
                             <th className="py-3.5 px-4 font-bold">Estado</th>
-                            <th className="py-3.5 px-4 font-bold text-center">Acciones (Permiso Pastor)</th>
+                            <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
                           </tr>
                         </thead>
                         <tbody className="divide-y divide-slate-200 text-sm">
@@ -2955,37 +2852,31 @@ export default function App() {
                                   <td className="py-3.5 px-4">{renderEstadoBadge(m)}</td>
                                   <td className="py-3.5 px-4 text-center">
                                     <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      {m.tipo === 'INGRESO' && m.estado !== 'VERIFICADO' && (
+                                        <button
+                                          onClick={() => openArqueoModal(m)}
+                                          className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
+                                          title="Realizar Arqueo"
+                                        >
+                                          Arqueo
+                                        </button>
+                                      )}
                                       <button
                                         onClick={() => setEditingTesoreroMov({ ...m })}
                                         className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
                                         title="Corregir o hacer devolución al recaudador"
                                       >
                                         <Edit3 className="w-3.5 h-3.5" />
-                                        Modificar
+                                        Modificar / Devolución
                                       </button>
-                                      {m.borradoAutorizado ? (
-                                        <button
-                                          onClick={() => setEliminarItemModal(m)}
-                                          className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all animate-pulse"
-                                        >
-                                          Borrar (Autorizado)
-                                        </button>
-                                      ) : m.solicitudBorrado ? (
-                                        <span className="text-[10px] bg-amber-100 text-amber-900 px-2.5 py-1 rounded font-bold">
-                                          Esperando Permiso Pastor
-                                        </span>
-                                      ) : (
-                                        <button
-                                          onClick={() => {
-                                            setSolicitudBorradoModal(m);
-                                            setMotivoBorradoInput('');
-                                          }}
-                                          className="px-2.5 py-1.5 bg-slate-200 hover:bg-slate-300 text-slate-800 text-xs font-bold rounded-lg shadow-xs transition-all"
-                                          title="Solicitar permiso al pastor para borrar"
-                                        >
-                                          Solicitar Borrado
-                                        </button>
-                                      )}
+                                      <button
+                                        onClick={() => setEliminarItemModal(m)}
+                                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                                        title="Eliminar registro"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Borrar
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -3009,8 +2900,8 @@ export default function App() {
                 <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <ShieldAlert className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Ingreso Pastor / Administrador</h2>
-                <p className="text-sm text-slate-500 mt-1">Supervisión total, autorizaciones de borrado, cierre de mes y generación de documentos.</p>
+                <h2 className="text-xl font-bold text-slate-900">Ingreso Módulo Administrador</h2>
+                <p className="text-sm text-slate-500 mt-1">Gestiona usuarios, roles, logo y nombre del sistema.</p>
 
                 <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
                   <div>
@@ -3043,7 +2934,7 @@ export default function App() {
                     type="submit"
                     className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-indigo-950 font-extrabold text-sm shadow-md transition-all mt-2"
                   >
-                    Ingresar como Pastor / Administrador
+                    Ingresar como Administrador
                   </button>
                 </form>
               </div>
@@ -3053,16 +2944,16 @@ export default function App() {
                   <div className="flex items-center gap-2.5">
                     <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
                     <span className="text-sm font-bold text-slate-800">
-                      Pastor / Admin Conectado: <span className="text-amber-700 underline">{usuarioLogueadoAdmin.nombre}</span>
+                      Administrador Conectado: <span className="text-amber-700 underline">{usuarioLogueadoAdmin.nombre}</span>
                     </span>
                   </div>
-                  <div className="flex flex-wrap items-center gap-2">
+                  <div className="flex items-center gap-2">
                     <button
-                      onClick={handleExportCSV}
-                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
+                      onClick={() => setShowBorrarTodoModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all"
                     >
-                      <Download className="w-3.5 h-3.5" />
-                      Descargar Excel / Documento de Actividades
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Borrar Base de Datos
                     </button>
                     <button
                       onClick={() => setUsuarioLogueadoAdmin(null)}
@@ -3074,321 +2965,222 @@ export default function App() {
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
-                  <button
-                    onClick={() => setAdminTab('AUDITORIA')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'AUDITORIA' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <ShieldAlert className="w-4 h-4 text-amber-400" />
-                    <span>Permisos de Borrado y Solicitudes</span>
-                    {kpis.cantidadSolicitudesBorrado > 0 && (
-                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-rose-600 text-white font-extrabold animate-pulse">
-                        {kpis.cantidadSolicitudesBorrado}
-                      </span>
-                    )}
-                  </button>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                  <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-indigo-700" />
+                    Personalizar Nombre y Logo de la Institución
+                  </h3>
+                  <p className="text-xs text-slate-500">Cambia el título principal y la imagen del logo en la parte superior del sistema para todos los usuarios.</p>
 
-                  <button
-                    onClick={() => setAdminTab('CIERRE_MES')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'CIERRE_MES' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Calendar className="w-4 h-4 text-amber-400" />
-                    <span>Cierre de Mes Oficial</span>
-                  </button>
-
-                  <button
-                    onClick={() => setAdminTab('USUARIOS')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'USUARIOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <span>Usuarios y Permisos</span>
-                  </button>
-                </div>
-
-                {adminTab === 'AUDITORIA' && (
-                  <div className="space-y-6">
-                    {kpis.cantidadSolicitudesBorrado > 0 && (
-                      <div className="bg-rose-50 rounded-2xl border-2 border-rose-300 p-5 shadow-sm">
-                        <h3 className="font-bold text-rose-950 text-sm mb-3 flex items-center gap-2">
-                          <Trash2 className="w-4 h-4 text-rose-700" />
-                          Solicitudes de Borrado de Tesorería (Requieren tu Autorización)
-                        </h3>
-                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {movimientos
-                            .filter((m) => m.solicitudBorrado)
-                            .map((item) => (
-                              <div key={item.id} className="bg-white p-4 rounded-xl border border-rose-200 shadow-xs flex flex-col justify-between gap-3">
-                                <div>
-                                  <div className="flex items-center justify-between">
-                                    <span className="text-xs font-mono font-bold bg-rose-100 text-rose-900 px-2 py-0.5 rounded">{item.id}</span>
-                                    <span className="text-xs text-slate-500 font-semibold">{item.responsable}</span>
-                                  </div>
-                                  <h4 className="font-bold text-slate-900 text-sm mt-1">{item.actividad} — {formatCOP(item.montoReportado)}</h4>
-                                  <p className="text-xs text-rose-900 bg-rose-50 p-2.5 rounded-lg border border-rose-200 mt-2">
-                                    <strong>Motivo de tesorería:</strong> "{item.motivoBorrado}"
-                                  </p>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    onClick={() => handleResolverBorradoAdmin(item, true)}
-                                    className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg transition-all"
-                                  >
-                                    Autorizar Borrado
-                                  </button>
-                                  <button
-                                    onClick={() => handleResolverBorradoAdmin(item, false)}
-                                    className="py-2 px-3 bg-slate-100 hover:bg-slate-200 text-slate-800 text-xs font-bold rounded-lg transition-all"
-                                  >
-                                    Denegar
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      </div>
-                    )}
-
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                      <h3 className="font-bold text-base text-slate-900">Resumen y Auditoría de Actividades</h3>
-                      <p className="text-xs text-slate-500">Como Pastor / Administrador, tienes la supervisión general de los movimientos registrados.</p>
-
-                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-                        <div className="bg-indigo-950 p-4 rounded-xl text-white">
-                          <span className="text-[10px] uppercase font-bold text-indigo-200 block">Saldo Real en Caja</span>
-                          <span className="text-xl font-extrabold text-emerald-400 mt-1 block">{formatCOP(kpis.saldoRealEnCaja)}</span>
-                        </div>
-                        <div className="bg-slate-100 p-4 rounded-xl border border-slate-200">
-                          <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Entradas</span>
-                          <span className="text-xl font-extrabold text-slate-900 mt-1 block">{formatCOP(kpis.totalEntradasVerificadas)}</span>
-                        </div>
-                        <div className="bg-slate-100 p-4 rounded-xl border border-slate-200">
-                          <span className="text-[10px] uppercase font-bold text-slate-500 block">Total Salidas Netas</span>
-                          <span className="text-xl font-extrabold text-rose-600 mt-1 block">- {formatCOP(kpis.totalSalidas)}</span>
-                        </div>
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {adminTab === 'CIERRE_MES' && (
-                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm p-6 space-y-6">
-                    <div className="flex items-center gap-3">
-                      <div className="w-10 h-10 rounded-xl bg-amber-100 text-amber-900 flex items-center justify-center font-bold">
-                        <Calendar className="w-6 h-6" />
-                      </div>
+                  <form onSubmit={handleGuardarConfiguracionAdmin} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                       <div>
-                        <h3 className="font-bold text-lg text-slate-900">Cierre de Mes Oficial (Exclusivo Pastor / Admin)</h3>
-                        <p className="text-xs text-slate-500">Sella el mes contable y congela los balances de tesorería.</p>
-                      </div>
-                    </div>
-
-                    <form onSubmit={handleEjecutarCierreDeMes} className="space-y-4 bg-slate-50 p-5 rounded-xl border border-slate-200">
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Seleccionar Mes a Cerrar</label>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título Principal</label>
                         <input
-                          type="month"
+                          type="text"
                           required
-                          value={mesCierreInput}
-                          onChange={(e) => setMesCierreInput(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
+                          value={inputConfigTitulo}
+                          onChange={(e) => setInputConfigTitulo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white font-bold"
+                          placeholder="Ej. Tesorería Parroquia San José"
                         />
                       </div>
-                      <button
-                        type="submit"
-                        className="w-full py-3.5 bg-amber-500 hover:bg-amber-600 text-indigo-950 font-extrabold text-sm rounded-xl shadow-md transition-all"
-                      >
-                        Ejecutar y Sellar Cierre Oficial de Mes
-                      </button>
-                    </form>
-
-                    <div className="space-y-3">
-                      <h4 className="text-xs font-bold uppercase text-slate-600">Historial de Cierres Mensuales Oficiales</h4>
-                      {cierresMensuales.length === 0 ? (
-                        <p className="text-xs text-slate-500 py-6 text-center">No hay cierres mensuales ejecutados todavía.</p>
-                      ) : (
-                        <div className="space-y-2">
-                          {cierresMensuales.map(c => (
-                            <div key={c.id} className="p-4 rounded-xl border border-slate-200 bg-white flex justify-between items-center text-xs shadow-2xs">
-                              <div>
-                                <span className="font-bold text-sm text-slate-900">Mes: {c.mes}</span>
-                                <span className="text-slate-500 block">Cerrado el {c.fechaCierre} por {c.responsableCierre} ({c.cantidadMovimientos} movimientos)</span>
-                              </div>
-                              <div className="text-right">
-                                <span className="font-extrabold text-emerald-700 block text-sm">Balance Neto: {formatCOP(c.balanceNeto)}</span>
-                                <span className="text-[10px] text-slate-400">Caja final: {formatCOP(c.saldoCajaFinal)}</span>
-                              </div>
-                            </div>
-                          ))}
-                        </div>
-                      )}
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL de la Imagen del Logo</label>
+                        <input
+                          type="url"
+                          value={inputConfigLogo}
+                          onChange={(e) => setInputConfigLogo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                          placeholder="https://ejemplo.com/logo.png"
+                        />
+                      </div>
                     </div>
-                  </div>
-                )}
-
-                {adminTab === 'USUARIOS' && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
                     <div>
-                      <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
-                        <Users className="w-5 h-5 text-indigo-700" />
-                        Gestión Integral de Usuarios
-                      </h3>
-                      <p className="text-xs text-slate-500">Modifica datos, cambia claves, activa/inactiva accesos o elimina usuarios del sistema.</p>
+                      <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Descripción corta</label>
+                      <input
+                        type="text"
+                        value={inputConfigSub}
+                        onChange={(e) => setInputConfigSub(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                        placeholder="Ej. Control de Recaudos y Abonos"
+                      />
                     </div>
+                    <button
+                      type="submit"
+                      className="px-5 py-3 bg-indigo-950 hover:bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+                    >
+                      Guardar Cambios de Identidad
+                    </button>
+                  </form>
+                </div>
 
+                {usuariosSistema.some(u => u.solicitudClave) && (
+                  <div className="bg-amber-50 rounded-2xl border-2 border-amber-300 p-5 shadow-sm">
+                    <h3 className="font-bold text-amber-950 text-sm mb-3 flex items-center gap-2">
+                      <KeyRound className="w-5 h-5 text-amber-700" />
+                      Solicitudes de Recuperación de Contraseña
+                    </h3>
                     <div className="space-y-3">
-                      <h4 className="text-xs font-bold uppercase text-slate-600">Usuarios Registrados en el Sistema</h4>
-                      <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 p-2">
-                        {usuariosSistema.map((u) => (
-                          <div key={u.id} className="py-2.5 px-3 flex items-center justify-between gap-2 text-xs bg-white rounded-lg mb-1 shadow-2xs">
+                      {usuariosSistema
+                        .filter(u => u.solicitudClave)
+                        .map(u => (
+                          <div key={u.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-xs flex items-center justify-between gap-3">
                             <div>
                               <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
-                              <span className="text-slate-500 ml-1">({u.usuario})</span>
-                              <div className="flex items-center gap-2 mt-0.5">
-                                <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-indigo-100 text-indigo-900' : 'bg-emerald-100 text-emerald-900'}`}>
-                                  {u.rol}
-                                </span>
-                                <span className="text-slate-400">Clave: {u.clave}</span>
-                              </div>
+                              <span className="text-xs text-slate-500 block">Usuario: <strong className="font-mono text-indigo-900">{u.usuario}</strong> ({u.rol})</span>
                             </div>
-                            <div className="flex items-center gap-1.5 flex-wrap">
+                            <div className="flex items-center gap-2">
                               <button
-                                type="button"
-                                onClick={() => setEditingUser({ ...u })}
-                                className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                                onClick={() => handleAutorizarCambioClave(u.id, true)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-xs"
                               >
-                                <Edit3 className="w-3.5 h-3.5" />
-                                Modificar
+                                Autorizar Cambio
                               </button>
                               <button
-                                type="button"
-                                onClick={() => handleToggleEstadoUsuario(u.id)}
-                                className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
-                                  u.activo
-                                    ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
-                                    : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
-                                }`}
+                                onClick={() => handleAutorizarCambioClave(u.id, false)}
+                                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
                               >
-                                {u.activo ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
-                                {u.activo ? 'Activo' : 'Inactivo'}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => setEliminarUsuarioModal(u)}
-                                className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                Borrar
+                                Rechazar
                               </button>
                             </div>
                           </div>
                         ))}
-                      </div>
-                    </div>
-
-                    <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 space-y-3">
-                      <h4 className="text-xs font-bold uppercase text-indigo-950 flex items-center gap-1.5">
-                        <UserPlus className="w-4 h-4 text-indigo-700" />
-                        Crear Nuevo Usuario
-                      </h4>
-
-                      <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. Hna. Sofía Pérez"
-                              value={nuevoUserNombre}
-                              onChange={(e) => setNuevoUserNombre(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario (Login)</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. sofia"
-                              value={nuevoUserAlias}
-                              onChange={(e) => setNuevoUserAlias(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
-                            />
-                          </div>
-                        </div>
-
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña / Clave</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Clave numérica..."
-                              value={nuevoUserClave}
-                              onChange={(e) => setNuevoUserClave(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-bold"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol en el Sistema</label>
-                            <select
-                              value={nuevoUserRol}
-                              onChange={(e) => setNuevoUserRol(e.target.value)}
-                              className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-semibold"
-                            >
-                              <option value="RECAUDADOR">Recaudador</option>
-                              <option value="TESORERO">Tesorero Central</option>
-                              <option value="ADMINISTRADOR">Pastor / Administrador</option>
-                            </select>
-                          </div>
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg text-xs font-bold shadow-xs transition-all mt-1"
-                        >
-                          Registrar Nuevo Usuario Activo
-                        </button>
-                      </form>
                     </div>
                   </div>
                 )}
+
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-700" />
+                      Gestión Integral de Usuarios
+                    </h3>
+                    <p className="text-xs text-slate-500">Modifica datos, cambia claves, activa/inactiva accesos o elimina usuarios del sistema.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-slate-600">Usuarios Registrados en el Sistema</h4>
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {usuariosSistema.map((u) => (
+                        <div key={u.id} className="py-2.5 px-3 flex items-center justify-between gap-2 text-xs bg-white rounded-lg mb-1 shadow-2xs">
+                          <div>
+                            <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                            <span className="text-slate-500 ml-1">({u.usuario})</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-indigo-100 text-indigo-900' : 'bg-emerald-100 text-emerald-900'}`}>
+                                {u.rol}
+                              </span>
+                              <span className="text-slate-400">Clave: {u.clave}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setEditingUser({ ...u })}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Modificar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEstadoUsuario(u.id)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                u.activo
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                              }`}
+                            >
+                              {u.activo ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                              {u.activo ? 'Activo' : 'Inactivo'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEliminarUsuarioModal(u)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Borrar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-indigo-950 flex items-center gap-1.5">
+                      <UserPlus className="w-4 h-4 text-indigo-700" />
+                      Crear Nuevo Usuario
+                    </h4>
+
+                    <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Hna. Sofía Pérez"
+                            value={nuevoUserNombre}
+                            onChange={(e) => setNuevoUserNombre(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario (Login)</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. sofia"
+                            value={nuevoUserAlias}
+                            onChange={(e) => setNuevoUserAlias(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña / Clave</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Clave numérica..."
+                            value={nuevoUserClave}
+                            onChange={(e) => setNuevoUserClave(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol en el Sistema</label>
+                          <select
+                            value={nuevoUserRol}
+                            onChange={(e) => setNuevoUserRol(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-semibold"
+                          >
+                            <option value="RECAUDADOR">Recaudador</option>
+                            <option value="TESORERO">Tesorero Central</option>
+                            <option value="ADMINISTRADOR">Administrador</option>
+                          </select>
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg text-xs font-bold shadow-xs transition-all mt-1"
+                      >
+                        Registrar Nuevo Usuario Activo
+                      </button>
+                    </form>
+                  </div>
+                </div>
               </div>
             )}
           </>
         )}
       </main>
-
-      {/* Modales complementarios */}
-      {solicitudBorradoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
-            <h3 className="font-bold text-base text-rose-800">Solicitar Autorización de Borrado al Pastor</h3>
-            <p className="text-xs text-slate-600">Tesorería no puede borrar directamente. Escribe el motivo para enviarlo a la bandeja del Administrador:</p>
-            <form onSubmit={handleEnviarSolicitudBorrado}>
-              <textarea
-                rows={3}
-                required
-                placeholder="Motivo..."
-                value={motivoBorradoInput}
-                onChange={(e) => setMotivoBorradoInput(e.target.value)}
-                className="w-full p-3 border text-xs rounded-xl mb-3 bg-rose-50 outline-none focus:ring-2 focus:ring-rose-500"
-                autoFocus
-              />
-              <div className="flex gap-2">
-                <button type="button" onClick={() => setSolicitudBorradoModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
-                <button type="submit" className="flex-1 py-2 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold">Enviar al Pastor</button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
 
       {showCambioClaveRecaudadorModal && (
         <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
@@ -3481,7 +3273,7 @@ export default function App() {
               <input
                 type="text"
                 required
-                placeholder="Ej. tesorero"
+                placeholder="Ej. marta"
                 value={usuarioOlvidoInput}
                 onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
                 className="w-full px-3.5 py-2.5 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
@@ -3509,7 +3301,7 @@ export default function App() {
                 <input
                   type="text"
                   required
-                  placeholder="Ej. tesorero"
+                  placeholder="Ej. marta"
                   value={usuarioRestablecerAlias}
                   onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
                   className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-emerald-600 bg-white"
@@ -3609,7 +3401,7 @@ export default function App() {
                 >
                   <option value="RECAUDADOR">Recaudador</option>
                   <option value="TESORERO">Tesorero Central</option>
-                  <option value="ADMINISTRADOR">Pastor / Administrador</option>
+                  <option value="ADMINISTRADOR">Administrador</option>
                 </select>
               </div>
               <div className="flex gap-2 pt-2">
@@ -3653,7 +3445,7 @@ export default function App() {
           <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
             <h3 className="font-bold text-base text-rose-700 flex items-center gap-2">
               <Trash2 className="w-5 h-5 text-rose-600" />
-              ¿Eliminar este registro del libro? (Cuenta con autorización del Pastor)
+              ¿Eliminar este registro del libro?
             </h3>
             <div className="flex gap-2 pt-2">
               <button onClick={() => setEliminarItemModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
@@ -3693,7 +3485,7 @@ export default function App() {
                     : m
                 );
                 setMovimientos(actualizados);
-                guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+                guardarEnNube(actualizados, usuariosSistema, configuracionApp);
                 setEditingTesoreroMov(null);
                 showToast('Registro modificado con éxito. Notificación enviada al recaudador.');
               }}
