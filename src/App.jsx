@@ -38,7 +38,7 @@ import {
   KeyRound,
   HelpCircle,
   Settings,
-  Calendar
+  XCircle
 } from 'lucide-react';
 
 const formatCOP = (value) => {
@@ -51,14 +51,14 @@ const formatCOP = (value) => {
 };
 
 const calcularResumenInventario = (item) => {
-  if (!item || item.modoRegistro !== 'UNIDADES') {
+  if (item.modoRegistro !== 'UNIDADES') {
     return {
       esUnidades: false,
       producidas: 0,
       precioUnitario: 0,
-      totalEsperado: Number(item?.montoReportado) || 0,
+      totalEsperado: Number(item.montoReportado) || 0,
       unidadesPagadas: 0,
-      plataPagada: Number(item?.montoReportado) || 0,
+      plataPagada: Number(item.montoReportado) || 0,
       unidadesFiadas: 0,
       plataFiada: 0,
       unidadesIncobrables: 0,
@@ -83,7 +83,6 @@ const calcularResumenInventario = (item) => {
   let plataIncobrable = 0;
 
   compradores.forEach((c) => {
-    if (!c) return;
     const cant = Number(c.cantidad) || 0;
     const totalComp = cant * precioUnitario;
 
@@ -144,7 +143,6 @@ const CATEGORIAS_EGRESO = [
 
 export default function App() {
   const [movimientos, setMovimientos] = useState([]);
-  const [cierresMensuales, setCierresMensuales] = useState([]);
   const [configuracionApp, setConfiguracionApp] = useState({
     titulo: 'Tesorería & Recaudos Eclesiásticos',
     subtitulo: 'Control Estricto de Recaudos, Abonos y Cierres en Tiempo Real • Supabase',
@@ -152,7 +150,7 @@ export default function App() {
   });
   
   const [usuariosSistema, setUsuariosSistema] = useState([
-    { id: 'US-0', nombre: 'Administrador / Pastor', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solictudClave: false, claveAutorizada: false },
+    { id: 'US-0', nombre: 'Administrador General', usuario: 'admin', clave: 'admin2026', rol: 'ADMINISTRADOR', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-1', nombre: 'Tesorero Principal', usuario: 'tesorero', clave: '1234', rol: 'TESORERO', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-2', nombre: 'Hna. Marta Gómez', usuario: 'marta', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false },
     { id: 'US-3', nombre: 'Hno. Carlos Ruiz', usuario: 'carlos', clave: '2026', rol: 'RECAUDADOR', activo: true, solictudClave: false, claveAutorizada: false }
@@ -163,20 +161,15 @@ export default function App() {
   useEffect(() => {
     supabase
       .from('estado_tesoreria')
-      .select('datos, usuarios, config, cierres')
+      .select('datos, usuarios, config')
       .eq('id', 1)
       .single()
       .then(({ data }) => {
         if (data) {
           if (data.datos) setMovimientos(Array.isArray(data.datos) ? data.datos : []);
           if (data.usuarios && Array.isArray(data.usuarios)) setUsuariosSistema(data.usuarios);
-          if (data.config) setConfiguracionApp((prev) => ({ ...prev, ...data.config }));
-          if (data.cierres) setCierresMensuales(Array.isArray(data.cierres) ? data.cierres : []);
+          if (data.config) setConfiguracionApp({ ...configuracionApp, ...data.config });
         }
-        setCargandoNube(false);
-      })
-      .catch((err) => {
-        console.error('Error cargando desde Supabase:', err);
         setCargandoNube(false);
       });
 
@@ -186,7 +179,7 @@ export default function App() {
         'postgres_changes',
         { event: '*', schema: 'public', table: 'estado_tesoreria', filter: 'id=eq.1' },
         (payload) => {
-          if (payload && payload.new) {
+          if (payload.new) {
             if (payload.new.datos) {
               setMovimientos(Array.isArray(payload.new.datos) ? payload.new.datos : []);
             }
@@ -195,9 +188,6 @@ export default function App() {
             }
             if (payload.new.config) {
               setConfiguracionApp(payload.new.config);
-            }
-            if (payload.new.cierres) {
-              setCierresMensuales(Array.isArray(payload.new.cierres) ? payload.new.cierres : []);
             }
           }
         }
@@ -209,7 +199,7 @@ export default function App() {
     };
   }, []);
 
-  const guardarEnNube = (nuevosMovs, nuevosUsuarios, nuevaConfig, nuevosCierres) => {
+  const guardarEnNube = (nuevosMovs, nuevosUsuarios, nuevaConfig) => {
     if (cargandoNube) return;
     try {
       supabase
@@ -218,8 +208,7 @@ export default function App() {
           id: 1, 
           datos: nuevosMovs || movimientos, 
           usuarios: nuevosUsuarios || usuariosSistema,
-          config: nuevaConfig || configuracionApp,
-          cierres: nuevosCierres || cierresMensuales
+          config: nuevaConfig || configuracionApp
         })
         .then(({ error }) => {
           if (error) console.error('Error al guardar en Supabase:', error);
@@ -230,8 +219,6 @@ export default function App() {
   };
 
   const [activeRole, setActiveRole] = useState('RECAUDADOR'); 
-  const [adminTab, setAdminTab] = useState('AUDITORIA');
-  const [mesCierreInput, setMesCierreInput] = useState(() => new Date().toISOString().substring(0, 7));
   
   const [usuarioLogueadoRecaudador, setUsuarioLogueadoRecaudador] = useState(null);
   const [recUserLoginInput, setRecUserLoginInput] = useState('');
@@ -254,6 +241,28 @@ export default function App() {
   const [adminPassLoginInput, setAdminPassLoginInput] = useState('');
   const [adminLoginError, setAdminLoginError] = useState('');
 
+  const [inputConfigTitulo, setInputConfigTitulo] = useState(configuracionApp.titulo);
+  const [inputConfigSub, setInputConfigSub] = useState(configuracionApp.subtitulo);
+  const [inputConfigLogo, setInputConfigLogo] = useState(configuracionApp.logoUrl);
+
+  useEffect(() => {
+    setInputConfigTitulo(configuracionApp.titulo);
+    setInputConfigSub(configuracionApp.subtitulo);
+    setInputConfigLogo(configuracionApp.logoUrl);
+  }, [configuracionApp]);
+
+  const handleGuardarConfiguracionAdmin = (e) => {
+    e.preventDefault();
+    const nuevaConf = {
+      titulo: inputConfigTitulo.trim() || 'Tesorería & Recaudos Eclesiásticos',
+      subtitulo: inputConfigSub.trim() || 'Control Estricto de Recaudos',
+      logoUrl: inputConfigLogo.trim()
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf);
+    showToast('¡Encabezado, título y logo actualizados con éxito!');
+  };
+
   const [showOlvidoClaveModal, setShowOlvidoClaveModal] = useState(false);
   const [usuarioOlvidoInput, setUsuarioOlvidoInput] = useState('');
 
@@ -261,6 +270,7 @@ export default function App() {
   const [usuarioRestablecerAlias, setUsuarioRestablecerAlias] = useState('');
   const [nuevaClaveInput, setNuevaClaveInput] = useState('');
 
+  const [editingUser, setEditingUser] = useState(null);
   const [eliminarUsuarioModal, setEliminarUsuarioModal] = useState(null);
 
   const [toast, setToast] = useState(null);
@@ -268,6 +278,8 @@ export default function App() {
     setToast({ message, type });
     setTimeout(() => setToast(null), 4500);
   };
+
+  const [showBorrarTodoModal, setShowBorrarTodoModal] = useState(false);
 
   const [nuevoUserNombre, setNuevoUserNombre] = useState('');
   const [nuevoUserAlias, setNuevoUserAlias] = useState('');
@@ -299,9 +311,8 @@ export default function App() {
   const [solicitudIncobrableModal, setSolicitudIncobrableModal] = useState(null);
   const [motivoIncobrableInput, setMotivoIncobrableInput] = useState('');
 
+  const [editingTesoreroMov, setEditingTesoreroMov] = useState(null);
   const [eliminarItemModal, setEliminarItemModal] = useState(null);
-  const [solicitudBorradoModal, setSolicitudBorradoModal] = useState(null);
-  const [motivoBorradoInput, setMotivoBorradoInput] = useState('');
 
   const [tesoreroTab, setTesoreroTab] = useState('BANDEJA');
   const [arqueoItem, setArqueoItem] = useState(null);
@@ -323,67 +334,18 @@ export default function App() {
     setExpandedRows((prev) => ({ ...prev, [id]: !prev[id] }));
   };
 
-  const handleEnviarSolicitudBorrado = (e) => {
-    e.preventDefault();
-    if (!solicitudBorradoModal) return;
-    const motivo = motivoBorradoInput.trim();
-    if (!motivo) {
-      showToast('Escribe el motivo del borrado.', 'error');
-      return;
-    }
-
-    const actualizados = (movimientos || []).map((m) => {
-      if (m && m.id === solicitudBorradoModal.id) {
-        return {
-          ...m,
-          solicitudBorrado: true,
-          motivoBorrado: motivo,
-          solicitanteBorrado: usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorería'
-        };
-      }
-      return m;
-    });
-
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    setSolicitudBorradoModal(null);
-    setMotivoBorradoInput('');
-    showToast('Solicitud de borrado enviada al Pastor / Administrador.');
-  };
-
-  const handleResolverBorradoAdmin = (item, autorizar) => {
-    if (!item) return;
-    const actualizados = (movimientos || []).map((m) => {
-      if (m && m.id === item.id) {
-        if (autorizar) {
-          return {
-            ...m,
-            solicitudBorrado: false,
-            borradoAutorizado: true,
-            notaTesorero: `${m.notaTesorero || ''} [Pastor autorizó el borrado]`
-          };
-        } else {
-          return {
-            ...m,
-            solicitudBorrado: false,
-            borradoAutorizado: false,
-            motivoBorrado: '',
-            notaTesorero: `${m.notaTesorero || ''} [Pastor denegó el borrado]`
-          };
-        }
-      }
-      return m;
-    });
-    setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
-    showToast(autorizar ? 'Borrado autorizado. Ya se puede eliminar del libro.' : 'Solicitud de borrado denegada.');
+  const handleBorrarTodo = () => {
+    setMovimientos([]);
+    setShowBorrarTodoModal(false);
+    guardarEnNube([], usuariosSistema, configuracionApp);
+    showToast('Se han borrado todos los registros de la base de datos.', 'warning');
   };
 
   const handleEliminarRegistroLibro = () => {
     if (!eliminarItemModal) return;
-    const actualizados = (movimientos || []).filter((m) => m && m.id !== eliminarItemModal.id);
+    const actualizados = movimientos.filter((m) => m.id !== eliminarItemModal.id);
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setEliminarItemModal(null);
     showToast('Registro eliminado del libro correctamente.', 'warning');
   };
@@ -396,7 +358,7 @@ export default function App() {
     }
 
     const aliasLimpio = nuevoUserAlias.trim().toLowerCase();
-    const existe = (usuariosSistema || []).some((u) => u && u.usuario && u.usuario.toLowerCase() === aliasLimpio);
+    const existe = usuariosSistema.some((u) => u.usuario.toLowerCase() === aliasLimpio);
     if (existe) {
       showToast('Ese nombre de usuario ya está registrado. Usa otro.', 'error');
       return;
@@ -413,9 +375,9 @@ export default function App() {
       claveAutorizada: false
     };
 
-    const actualizados = [...(usuariosSistema || []), nuevoUser];
+    const actualizados = [...usuariosSistema, nuevoUser];
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setNuevoUserNombre('');
     setNuevoUserAlias('');
     setNuevoUserClave('');
@@ -423,65 +385,54 @@ export default function App() {
   };
 
   const handleToggleEstadoUsuario = (userId) => {
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.id === userId) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === userId) {
         return { ...u, activo: !u.activo };
       }
       return u;
     });
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     showToast('Estado del usuario actualizado.');
+  };
+
+  const handleGuardarEdicionUsuario = (e) => {
+    e.preventDefault();
+    if (!editingUser) return;
+
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === editingUser.id) {
+        return {
+          ...u,
+          nombre: editingUser.nombre.trim(),
+          usuario: editingUser.usuario.trim().toLowerCase(),
+          clave: editingUser.clave.trim(),
+          rol: editingUser.rol
+        };
+      }
+      return u;
+    });
+
+    setUsuariosSistema(actualizados);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
+    setEditingUser(null);
+    showToast('Usuario modificado correctamente.');
   };
 
   const handleConfirmarEliminarUsuario = () => {
     if (!eliminarUsuarioModal) return;
-    const admins = (usuariosSistema || []).filter(u => u && u.rol === 'ADMINISTRADOR');
+    const admins = usuariosSistema.filter(u => u.rol === 'ADMINISTRADOR');
     if (eliminarUsuarioModal.rol === 'ADMINISTRADOR' && admins.length <= 1) {
       showToast('No puedes eliminar al único administrador del sistema.', 'error');
       setEliminarUsuarioModal(null);
       return;
     }
 
-    const actualizados = (usuariosSistema || []).filter(u => u && u.id !== eliminarUsuarioModal.id);
+    const actualizados = usuariosSistema.filter(u => u.id !== eliminarUsuarioModal.id);
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setEliminarUsuarioModal(null);
     showToast('Usuario eliminado del sistema correctamente.', 'warning');
-  };
-
-  const handleEjecutarCierreDeMes = (e) => {
-    e.preventDefault();
-    const movsDelMes = (movimientos || []).filter(m => m && m.fecha && m.fecha.startsWith(mesCierreInput));
-    
-    let entradasMes = 0;
-    let salidasMes = 0;
-    movsDelMes.forEach(m => {
-      if (m.tipo === 'INGRESO') {
-        entradasMes += Number(m.montoRecibido) || Number(m.montoReportado) || 0;
-      } else if (m.tipo === 'EGRESO') {
-        salidasMes += Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0));
-      }
-    });
-
-    const nuevoCierre = {
-      id: 'CIERRE-' + mesCierreInput,
-      mes: mesCierreInput,
-      fechaCierre: new Date().toISOString().split('T')[0],
-      responsableCierre: usuarioLogueadoAdmin ? usuarioLogueadoAdmin.nombre : 'Pastor / Administrador',
-      totalEntradas: entradasMes,
-      totalSalidas: salidasMes,
-      balanceNeto: entradasMes - salidasMes,
-      cantidadMovimientos: movsDelMes.length,
-      saldoCajaFinal: kpis.saldoRealEnCaja
-    };
-
-    const sinDuplicados = (cierresMensuales || []).filter(c => c && c.mes !== mesCierreInput);
-    const actualizadosCierres = [nuevoCierre, ...sinDuplicados];
-    
-    setCierresMensuales(actualizadosCierres);
-    guardarEnNube(movimientos, usuariosSistema, configuracionApp, actualizadosCierres);
-    showToast(`¡Cierre oficial del mes ${mesCierreInput} ejecutado y sellado por el Pastor con éxito!`);
   };
 
   const handleCambiarClavePropiaRecaudador = (e) => {
@@ -497,15 +448,15 @@ export default function App() {
       return;
     }
 
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.id === usuarioLogueadoRecaudador.id) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === usuarioLogueadoRecaudador.id) {
         return { ...u, clave: claveNuevaRecInput.trim() };
       }
       return u;
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setUsuarioLogueadoRecaudador({ ...usuarioLogueadoRecaudador, clave: claveNuevaRecInput.trim() });
     setShowCambioClaveRecaudadorModal(false);
     setClaveActualRecInput('');
@@ -526,15 +477,15 @@ export default function App() {
       return;
     }
 
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.id === usuarioLogueadoTesorero.id) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === usuarioLogueadoTesorero.id) {
         return { ...u, clave: claveNuevaTesInput.trim() };
       }
       return u;
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setUsuarioLogueadoTesorero({ ...usuarioLogueadoTesorero, clave: claveNuevaTesInput.trim() });
     setShowCambioClaveTesoreroModal(false);
     setClaveActualTesInput('');
@@ -545,30 +496,30 @@ export default function App() {
   const handleEnviarSolicitudClave = (e) => {
     e.preventDefault();
     const alias = usuarioOlvidoInput.trim().toLowerCase();
-    const usuarioEncontrado = (usuariosSistema || []).find((u) => u && u.usuario && u.usuario.toLowerCase() === alias);
+    const usuarioEncontrado = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
 
     if (!usuarioEncontrado) {
       showToast('No se encontró ningún usuario con ese nombre en el sistema.', 'error');
       return;
     }
 
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.usuario && u.usuario.toLowerCase() === alias) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.usuario.toLowerCase() === alias) {
         return { ...u, solicitudClave: true };
       }
       return u;
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setShowOlvidoClaveModal(false);
     setUsuarioOlvidoInput('');
     showToast('Solicitud enviada al Administrador con éxito.', 'success');
   };
 
   const handleAutorizarCambioClave = (userId, autorizar) => {
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.id === userId) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.id === userId) {
         return {
           ...u,
           claveAutorizada: autorizar,
@@ -578,7 +529,7 @@ export default function App() {
       return u;
     });
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     showToast(autorizar ? 'Cambio de clave autorizado para el usuario.' : 'Solicitud rechazada.');
   };
 
@@ -587,7 +538,7 @@ export default function App() {
     const alias = usuarioRestablecerAlias.trim().toLowerCase();
     const nuevaClave = nuevaClaveInput.trim();
 
-    const usr = (usuariosSistema || []).find((u) => u && u.usuario && u.usuario.toLowerCase() === alias);
+    const usr = usuariosSistema.find((u) => u.usuario.toLowerCase() === alias);
     if (!usr) {
       showToast('Usuario no encontrado.', 'error');
       return;
@@ -598,8 +549,8 @@ export default function App() {
       return;
     }
 
-    const actualizados = (usuariosSistema || []).map((u) => {
-      if (u && u.usuario && u.usuario.toLowerCase() === alias) {
+    const actualizados = usuariosSistema.map((u) => {
+      if (u.usuario.toLowerCase() === alias) {
         return {
           ...u,
           clave: nuevaClave,
@@ -611,7 +562,7 @@ export default function App() {
     });
 
     setUsuariosSistema(actualizados);
-    guardarEnNube(movimientos, actualizados, configuracionApp, cierresMensuales);
+    guardarEnNube(movimientos, actualizados, configuracionApp);
     setShowRestablecerClaveModal(false);
     setUsuarioRestablecerAlias('');
     setNuevaClaveInput('');
@@ -630,8 +581,7 @@ export default function App() {
     let plataFiada = 0;
     let plataIncobrable = 0;
 
-    (recCompradores || []).forEach((c) => {
-      if (!c) return;
+    recCompradores.forEach((c) => {
       const q = Number(c.cantidad) || 0;
       const totalComp = q * precio;
 
@@ -719,10 +669,30 @@ export default function App() {
       montoAbonado: montoAbonadoInicial,
     };
 
-    setRecCompradores([...(recCompradores || []), nuevo]);
+    setRecCompradores([...recCompradores, nuevo]);
     setNuevoCompNombre('');
     setNuevoCompCantidad('1');
     setNuevoCompAbono('');
+  };
+
+  const handleToggleEstadoCompradorForm = (compId) => {
+    const precio = Number(recPrecioUnitario) || 0;
+    setRecCompradores((prev) =>
+      prev.map((c) => {
+        if (c.id !== compId) return c;
+        const totalComp = (Number(c.cantidad) || 0) * precio;
+        let nuevoEstado = 'FIADO';
+        if (c.estadoPago === 'FIADO') nuevoEstado = 'PAGADO';
+        else if (c.estadoPago === 'PAGADO') nuevoEstado = 'INCOBRABLE';
+        else if (c.estadoPago === 'INCOBRABLE') nuevoEstado = 'FIADO';
+
+        return {
+          ...c,
+          estadoPago: nuevoEstado,
+          montoAbonado: nuevoEstado === 'PAGADO' ? totalComp : nuevoEstado === 'INCOBRABLE' ? 0 : c.montoAbonado,
+        };
+      })
+    );
   };
 
   const handleEnviarSolicitudIncobrable = (e) => {
@@ -737,10 +707,10 @@ export default function App() {
     const { movimientoId, compradorId } = solicitudIncobrableModal;
     let nombreDeudorLocal = '';
 
-    const actualizados = (movimientos || []).map((m) => {
-      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
-      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
-        if (!c || c.id !== compradorId) return c;
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
         nombreDeudorLocal = c.nombre;
         return {
           ...c,
@@ -757,7 +727,7 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setSolicitudIncobrableModal(null);
     setMotivoIncobrableInput('');
     showToast('Solicitud de "Incobrable" enviada a Tesorería con éxito.');
@@ -766,11 +736,11 @@ export default function App() {
   const handleTesoreroResolverIncobrable = (movimientoId, compradorId, aprobar) => {
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
-    const actualizados = (movimientos || []).map((m) => {
-      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       let nombreComp = '';
-      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
-        if (!c || c.id !== compradorId) return c;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
         nombreComp = c.nombre;
         return {
           ...c,
@@ -788,14 +758,14 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(aprobar ? 'Deuda aprobada como Incobrable / Condonada.' : 'Solicitud rechazada.');
   };
 
   const handleModificarCompradorExistenteEnForm = (compId, campo, valor) => {
     setRecCompradores((prev) =>
-      (prev || []).map((c) => {
-        if (!c || c.id !== compId) return c;
+      prev.map((c) => {
+        if (c.id !== compId) return c;
         const actualizado = { ...c, [campo]: valor };
         if (campo === 'cantidad') {
           const cantNum = Number(valor) || 0;
@@ -811,7 +781,7 @@ export default function App() {
   };
 
   const handleEliminarCompradorForm = (compId) => {
-    setRecCompradores((prev) => (prev || []).filter((c) => c && c.id !== compId));
+    setRecCompradores((prev) => prev.filter((c) => c.id !== compId));
   };
 
   const handleRegistrarRecaudo = (e) => {
@@ -833,8 +803,8 @@ export default function App() {
         `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
 
       if (editingRecaudoId) {
-        const actualizados = (movimientos || []).map((m) =>
-          m && m.id === editingRecaudoId
+        const actualizados = movimientos.map((m) =>
+          m.id === editingRecaudoId
             ? {
                 ...m,
                 fecha: recFecha,
@@ -845,7 +815,7 @@ export default function App() {
                 metodoPago: recMetodo,
                 cantidadProducida: producidas,
                 precioUnitario: precio,
-                compradores: [...(recCompradores || [])],
+                compradores: [...recCompradores],
                 montoReportado: valorRecaudadoEnMano,
                 edicionAutorizada: false,
                 solicitudEdicion: false,
@@ -854,7 +824,7 @@ export default function App() {
             : m
         );
         setMovimientos(actualizados);
-        guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+        guardarEnNube(actualizados, usuariosSistema, configuracionApp);
         setEditingRecaudoId(null);
         setRecDescripcion('');
         setRecActividadLibre('');
@@ -875,18 +845,17 @@ export default function App() {
         metodoPago: recMetodo,
         cantidadProducida: producidas,
         precioUnitario: precio,
-        compradores: [...(recCompradores || [])],
+        compradores: [...recCompradores],
         montoReportado: valorRecaudadoEnMano,
         montoRecibido: 0,
         montoSalida: 0,
         estado: 'PENDIENTE',
         notaTesorero: '',
-        ultimoAbonoReportado: 0
       };
 
-      const actualizados = [nuevoReg, ...(movimientos || [])];
+      const actualizados = [nuevoReg, ...movimientos];
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setExpandedRows((prev) => ({ ...prev, [nuevoId]: true }));
       setRecDescripcion('');
       setRecActividadLibre('');
@@ -902,8 +871,8 @@ export default function App() {
     }
 
     if (editingRecaudoId) {
-      const actualizados = (movimientos || []).map((m) =>
-        m && m.id === editingRecaudoId
+      const actualizados = movimientos.map((m) =>
+        m.id === editingRecaudoId
           ? {
               ...m,
               fecha: recFecha,
@@ -920,7 +889,7 @@ export default function App() {
           : m
       );
       setMovimientos(actualizados);
-      guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+      guardarEnNube(actualizados, usuariosSistema, configuracionApp);
       setEditingRecaudoId(null);
       setRecDescripcion('');
       setRecActividadLibre('');
@@ -943,12 +912,11 @@ export default function App() {
       montoSalida: 0,
       estado: 'PENDIENTE',
       notaTesorero: '',
-      ultimoAbonoReportado: 0
     };
 
-    const actualizados = [nuevoReg, ...(movimientos || [])];
+    const actualizados = [nuevoReg, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setRecDescripcion('');
     setRecActividadLibre('');
     setRecMonto('');
@@ -956,24 +924,23 @@ export default function App() {
   };
 
   const handleIniciarEdicion = (item) => {
-    if (!item) return;
     if (!item.edicionAutorizada) {
       showToast('Necesitas solicitar autorización de edición a Tesorería.', 'warning');
       return;
     }
     setEditingRecaudoId(item.id);
-    setRecFecha(item.fecha || new Date().toISOString().split('T')[0]);
-    setRecActividadLibre(item.actividad || '');
-    setRecDescripcion(item.descripcion || '');
+    setRecFecha(item.fecha);
+    setRecActividadLibre(item.actividad);
+    setRecDescripcion(item.descripcion);
     setRecMetodo(item.metodoPago || 'Efectivo');
     if (item.modoRegistro === 'UNIDADES') {
       setModoRecaudo('UNIDADES');
-      setRecCantidadProducida(String(item.cantidadProducida || 30));
-      setRecPrecioUnitario(String(item.precioUnitario || 12000));
+      setRecCantidadProducida(String(item.cantidadProducida));
+      setRecPrecioUnitario(String(item.precioUnitario));
       setRecCompradores(Array.isArray(item.compradores) ? [...item.compradores] : []);
     } else {
       setModoRecaudo('GENERAL');
-      setRecMonto(String(item.montoReportado || 0));
+      setRecMonto(String(item.montoReportado));
     }
     window.scrollTo({ top: 0, behavior: 'smooth' });
     showToast('Modo edición activado. Puedes corregir cantidades y compradores.');
@@ -985,20 +952,19 @@ export default function App() {
     const motivo = motivoSolicitudEdicion.trim();
     if (!motivo) return;
 
-    const actualizados = (movimientos || []).map((m) =>
-      m && m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
+    const actualizados = movimientos.map((m) =>
+      m.id === solicitudEdicionModal.id ? { ...m, solicitudEdicion: true, motivoEdicion: motivo } : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Solicitud de edición enviada a Tesorería.');
     setSolicitudEdicionModal(null);
     setMotivoSolicitudEdicion('');
   };
 
   const handleAutorizarEdicionTesorero = (item, aprobar) => {
-    if (!item) return;
-    const actualizados = (movimientos || []).map((m) =>
-      m && m.id === item.id
+    const actualizados = movimientos.map((m) =>
+      m.id === item.id
         ? {
             ...m,
             edicionAutorizada: aprobar,
@@ -1010,12 +976,11 @@ export default function App() {
         : m
     );
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(aprobar ? 'Edición autorizada.' : 'Solicitud rechazada.');
   };
 
   const openAbonoModal = (movimiento, comprador) => {
-    if (!movimiento || !comprador) return;
     const precio = Number(movimiento.precioUnitario) || 0;
     const totalComp = (Number(comprador.cantidad) || 0) * precio;
     const abonadoActual =
@@ -1032,18 +997,19 @@ export default function App() {
     setValorAbonoInput(String(saldoPendiente));
   };
 
+  // MODIFICACIÓN 1: Si aún no ha entregado nada a Tesorería, el abono se suma al monto reportado principal
   const handleConfirmarAbono = (e) => {
     e.preventDefault();
     if (!abonoModal) return;
     const abonoNuevo = Number(valorAbonoInput.toString().replace(/\D/g, '')) || 0;
     if (abonoNuevo <= 0) return;
 
-    const actualizados = (movimientos || []).map((m) => {
-      if (!m || m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== abonoModal.movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
       
-      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
-        if (!c || c.id !== abonoModal.comprador.id) return c;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== abonoModal.comprador.id) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonadoPrevio =
           c.estadoPago === 'PAGADO'
@@ -1084,18 +1050,19 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast(`Abono de ${formatCOP(abonoNuevo)} actualizado en el total por entregar a Tesorería.`);
     setAbonoModal(null);
   };
 
+  // MODIFICACIÓN 2: Si aún no ha entregado nada, "Saldar Todo" también suma directamente al monto reportado principal
   const handleSaldarTodoComprador = (movimientoId, compradorId) => {
     let valorAbonadoExtra = 0;
-    const actualizados = (movimientos || []).map((m) => {
-      if (!m || m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
+    const actualizados = movimientos.map((m) => {
+      if (m.id !== movimientoId || m.modoRegistro !== 'UNIDADES') return m;
       const precio = Number(m.precioUnitario) || 0;
-      const comps = (Array.isArray(m.compradores) ? m.compradores : []).map((c) => {
-        if (!c || c.id !== compradorId) return c;
+      const comps = (m.compradores || []).map((c) => {
+        if (c.id !== compradorId) return c;
         const totalC = (Number(c.cantidad) || 0) * precio;
         const abonadoPrevio = c.estadoPago === 'PAGADO' ? totalC : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
         valorAbonadoExtra = Math.max(0, totalC - abonadoPrevio);
@@ -1127,7 +1094,7 @@ export default function App() {
       }
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Deuda saldada por completo. Total actualizado para entregar a Tesorería.');
   };
 
@@ -1139,8 +1106,8 @@ export default function App() {
     let totalEnMano = 0;
     let totalFiado = 0;
 
-    (movimientos || []).forEach((m) => {
-      if (m && m.tipo === 'INGRESO' && m.responsable === nombreRec) {
+    movimientos.forEach((m) => {
+      if (m.tipo === 'INGRESO' && m.responsable === nombreRec) {
         const base = Number(m.montoReportado) || 0;
         const abonosExtras = Number(m.ultimoAbonoReportado) || 0;
         totalReportado += base + abonosExtras;
@@ -1167,14 +1134,10 @@ export default function App() {
     let cantidadDescuadres = 0;
     let cantidadSolicitudesEdicion = 0;
     let cantidadSolicitudesIncobrable = 0;
-    let cantidadSolicitudesBorrado = 0;
     let totalPlataFiadaCalle = 0;
     let totalPlataSinVenderCalle = 0;
 
-    (movimientos || []).forEach((m) => {
-      if (!m) return;
-      if (m.solicitudBorrado && !m.borradoAutorizado) cantidadSolicitudesBorrado += 1;
-      
+    movimientos.forEach((m) => {
       if (m.tipo === 'INGRESO') {
         totalEntradasVerificadas += Number(m.montoRecibido) || 0;
 
@@ -1193,7 +1156,7 @@ export default function App() {
 
         if (m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores)) {
           m.compradores.forEach((c) => {
-            if (c && c.solicitudIncobrable) cantidadSolicitudesIncobrable += 1;
+            if (c.solicitudIncobrable) cantidadSolicitudesIncobrable += 1;
           });
           const inv = calcularResumenInventario(m);
           totalPlataFiadaCalle += inv.plataFiada;
@@ -1218,7 +1181,6 @@ export default function App() {
       cantidadDescuadres,
       cantidadSolicitudesEdicion,
       cantidadSolicitudesIncobrable,
-      cantidadSolicitudesBorrado,
       totalCarteraYSinVender,
     };
   }, [movimientos]);
@@ -1228,8 +1190,8 @@ export default function App() {
     const uInput = recUserLoginInput.trim().toLowerCase();
     const pInput = recPassLoginInput.trim();
 
-    const encontrado = (usuariosSistema || []).find(
-      (u) => u && u.rol === 'RECAUDADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'RECAUDADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1254,8 +1216,8 @@ export default function App() {
     const uInput = tesUserLoginInput.trim().toLowerCase();
     const pInput = tesPassLoginInput.trim();
 
-    const encontrado = (usuariosSistema || []).find(
-      (u) => u && u.rol === 'TESORERO' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'TESORERO' && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1280,8 +1242,8 @@ export default function App() {
     const uInput = adminUserLoginInput.trim().toLowerCase();
     const pInput = adminPassLoginInput.trim();
 
-    const encontrado = (usuariosSistema || []).find(
-      (u) => u && u.rol === 'ADMINISTRADOR' && u.usuario && u.usuario.toLowerCase() === uInput && u.clave === pInput
+    const encontrado = usuariosSistema.find(
+      (u) => u.rol === 'ADMINISTRADOR' && u.usuario.toLowerCase() === uInput && u.clave === pInput
     );
 
     if (!encontrado) {
@@ -1302,29 +1264,29 @@ export default function App() {
   };
 
   const openArqueoModal = (item) => {
-    if (!item) return;
     setArqueoItem(item);
-    const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+    const montoPendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
     setMontoFisicoContado(String(montoPendienteARecibir));
     setNotaArqueo(item.notaTesorero || '');
   };
 
+  // MODIFICACIÓN 3: Al hacer el arqueo, si había un abono acumulado extra, se consolida en el montoReportado total
   const handleConfirmarArqueo = (e) => {
     e.preventDefault();
     if (!arqueoItem) return;
     const contado = Number(montoFisicoContado.toString().replace(/\D/g, ''));
-    const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 ? Number(arqueoItem.ultimoAbonoReportado) : Number(arqueoItem.montoReportado || 0);
+    const reportadoEsperado = Number(arqueoItem.ultimoAbonoReportado) > 0 ? Number(arqueoItem.ultimoAbonoReportado) : Number(arqueoItem.montoReportado);
     const esExacto = contado === reportadoEsperado;
 
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
 
-    const actualizados = (movimientos || []).map((m) => {
-      if (m && m.id === arqueoItem.id) {
+    const actualizados = movimientos.map((m) => {
+      if (m.id === arqueoItem.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
         const totalRecibidoReal = recibidoAnterior + contado;
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
           ? (Number(m.montoReportado) || 0) + Number(m.ultimoAbonoReportado) 
-          : Number(m.montoReportado || 0);
+          : Number(m.montoReportado);
 
         return {
           ...m,
@@ -1345,22 +1307,21 @@ export default function App() {
     });
 
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setArqueoItem(null);
     showToast(esExacto ? 'Dinero recibido y sumado a caja correctamente.' : 'Arqueo guardado con descuadre.');
   };
 
   const handleCerrarRecaudoSinMasNovedad = (item) => {
-    if (!item) return;
     const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
-    const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+    const abonoPendiente = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
 
-    const actualizados = (movimientos || []).map((m) => {
-      if (m && m.id === item.id) {
+    const actualizados = movimientos.map((m) => {
+      if (m.id === item.id) {
         const recibidoAnterior = Number(m.montoRecibido) || 0;
         const nuevoReportadoTotal = Number(m.ultimoAbonoReportado) > 0 
           ? (Number(m.montoReportado) || 0) + Number(m.ultimoAbonoReportado) 
-          : Number(m.montoReportado || 0);
+          : Number(m.montoReportado);
 
         return {
           ...m,
@@ -1376,26 +1337,25 @@ export default function App() {
       return m;
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Recaudo cerrado y verificado definitivamente en caja.');
   };
 
   const handleAprobarAjusteDescuadre = (item) => {
-    if (!item) return;
-    const actualizados = (movimientos || []).map((m) => {
-      if (m && m.id === item.id) {
+    const actualizados = movimientos.map((m) => {
+      if (m.id === item.id) {
         return {
           ...m,
           montoReportado: m.montoRecibido,
           estado: 'VERIFICADO',
           edicionAutorizada: false,
-          notaTesorero: `${m.notaTesorero || ''} [Ajuste aprobado por Tesorería y cerrado]`,
+          notaTesorero: `${m.notaTesorero} [Ajuste aprobado por Tesorería y cerrado]`,
         };
       }
       return m;
     });
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     showToast('Ajuste de descuadre aprobado y cerrado.');
   };
 
@@ -1430,12 +1390,11 @@ export default function App() {
       montoSobranteDevuelto: sobrante,
       estado: 'EGRESO_REGISTRADO',
       notaTesorero: egrNota.trim() + (sobrante > 0 ? ` [Sobrante devuelto y retornado a caja: ${formatCOP(sobrante)}]` : ''),
-      ultimoAbonoReportado: 0
     };
 
-    const actualizados = [nuevoEgreso, ...(movimientos || [])];
+    const actualizados = [nuevoEgreso, ...movimientos];
     setMovimientos(actualizados);
-    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp);
     setEgrConcepto('');
     setEgrMonto('');
     setEgrNota('');
@@ -1448,7 +1407,7 @@ export default function App() {
     const headers = [
       'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Nota'
     ];
-    const rows = (movimientos || []).map((m) => [
+    const rows = movimientos.map((m) => [
       m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
       m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, `"${m.notaTesorero || ''}"`
     ]);
@@ -1465,30 +1424,27 @@ export default function App() {
   };
 
   const movimientosFiltrados = useMemo(() => {
-    return (movimientos || [])
+    return movimientos
       .filter((m) => {
-        if (!m) return false;
         if (filtroLibro === 'TODOS') return true;
         if (filtroLibro === 'INGRESOS') return m.tipo === 'INGRESO';
         if (filtroLibro === 'EGRESOS') return m.tipo === 'EGRESO';
         return m.estado === filtroLibro;
       })
       .filter((m) => {
-        if (!m) return false;
         if (!busquedaLibro.trim()) return true;
         const q = busquedaLibro.toLowerCase();
         return (
-          (m.actividad || '').toLowerCase().includes(q) ||
-          (m.descripcion || '').toLowerCase().includes(q) ||
-          (m.responsable || '').toLowerCase().includes(q) ||
-          (m.id || '').toLowerCase().includes(q)
+          m.actividad.toLowerCase().includes(q) ||
+          m.descripcion.toLowerCase().includes(q) ||
+          m.responsable.toLowerCase().includes(q) ||
+          m.id.toLowerCase().includes(q)
         );
       })
-      .sort((a, b) => new Date(b.fecha || 0) - new Date(a.fecha || 0));
+      .sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
   }, [movimientos, filtroLibro, busquedaLibro]);
 
   const renderEstadoBadge = (m) => {
-    if (!m) return null;
     switch (m.estado) {
       case 'VERIFICADO':
         return (
@@ -1614,10 +1570,10 @@ export default function App() {
                 }`}
               >
                 {usuarioLogueadoAdmin ? <Unlock className="w-3.5 h-3.5 text-indigo-950" /> : <ShieldAlert className="w-3.5 h-3.5 text-amber-300" />}
-                <span>Pastor / Admin</span>
-                {(kpis.cantidadSolicitudesBorrado + ((usuariosSistema || []).some(u => u && u.solicitudClave) ? 1 : 0)) > 0 && (
+                <span>Administrador</span>
+                {usuariosSistema.some(u => u.solicitudClave) && (
                   <span className="ml-1 px-1.5 py-0.5 text-[10px] font-extrabold rounded-full bg-rose-600 text-white animate-pulse">
-                    {kpis.cantidadSolicitudesBorrado + ((usuariosSistema || []).some(u => u && u.solicitudClave) ? 1 : 0)}
+                    !
                   </span>
                 )}
               </button>
@@ -1921,10 +1877,9 @@ export default function App() {
                                 </div>
                               )}
 
-                              {Array.isArray(recCompradores) && recCompradores.length > 0 && (
+                              {recCompradores.length > 0 && (
                                 <div className="max-h-52 overflow-y-auto divide-y divide-slate-200 bg-white rounded-lg border border-slate-200 p-2 space-y-2">
                                   {recCompradores.map((c) => {
-                                    if (!c) return null;
                                     const totalC = (Number(c.cantidad) || 0) * resumenFormUnidades.precio;
                                     const abonoC = c.estadoPago === 'PAGADO' ? totalC : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalC, Math.max(0, Number(c.montoAbonado) || 0));
                                     const saldoC = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalC - abonoC);
@@ -1934,7 +1889,7 @@ export default function App() {
                                         <div className="flex items-center justify-between gap-2">
                                           <input
                                             type="text"
-                                            value={c.nombre || ''}
+                                            value={c.nombre}
                                             onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'nombre', e.target.value)}
                                             className="font-bold text-slate-800 bg-white border border-slate-300 rounded px-2 py-1 flex-1 text-xs"
                                             placeholder="Nombre..."
@@ -1955,7 +1910,7 @@ export default function App() {
                                             <input
                                               type="number"
                                               min="1"
-                                              value={c.cantidad || 1}
+                                              value={c.cantidad}
                                               onChange={(e) => handleModificarCompradorExistenteEnForm(c.id, 'cantidad', e.target.value)}
                                               className="w-16 bg-white border border-slate-300 rounded px-2 py-1 font-bold text-center text-xs"
                                             />
@@ -2030,24 +1985,23 @@ export default function App() {
                     <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
                       <div className="flex items-center justify-between mb-4 border-b border-slate-100 pb-3">
                         <div>
-                          <h2 className="text-base font-bold text-slate-900">Informe de Mis Recaudos y Estado de Cartera</h2>
-                          <p className="text-xs text-slate-500">Supervisa tus unidades, abonos y deudores en tiempo real.</p>
+                          <h2 className="text-base font-bold text-slate-900">Historial de Actividades y Cartera</h2>
+                          <p className="text-xs text-slate-500">Gestiona abonos de deudores, solicita dar de baja como incobrable y pide edición.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
-                          {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} actividades
+                          {movimientos.filter((m) => m.tipo === 'INGRESO').length} registros
                         </span>
                       </div>
 
                       <div className="space-y-4">
-                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length === 0 ? (
+                        {movimientos.filter((m) => m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía por ti.</p>
+                            <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía.</p>
                           </div>
                         ) : (
-                          (movimientos || [])
-                            .filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre)
+                          movimientos
+                            .filter((m) => m.tipo === 'INGRESO')
                             .map((item) => {
-                              if (!item) return null;
                               const inv = calcularResumenInventario(item);
                               const isExpanded = !!expandedRows[item.id];
 
@@ -2063,6 +2017,9 @@ export default function App() {
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
                                       <p className="text-xs text-slate-600 mt-1 font-medium">{item.descripcion}</p>
+                                      <p className="text-xs font-semibold text-indigo-950 mt-1">
+                                        Recaudador: {item.responsable} ({item.metodoPago})
+                                      </p>
                                     </div>
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
@@ -2132,7 +2089,7 @@ export default function App() {
                                         </div>
                                       </div>
 
-                                      {Array.isArray(item.compradores) && item.compradores.length > 0 && (
+                                      {item.compradores && item.compradores.length > 0 && (
                                         <div>
                                           <button
                                             type="button"
@@ -2140,14 +2097,13 @@ export default function App() {
                                             className="inline-flex items-center gap-1.5 text-xs font-bold text-indigo-800 hover:text-indigo-950 pt-1"
                                           >
                                             <Users className="w-3.5 h-3.5" />
-                                            {isExpanded ? 'Ocultar lista de compradores y deudores' : `Ver informe de compradores y deudores (${item.compradores.length})`}
+                                            {isExpanded ? 'Ocultar lista de compradores y deudores' : `Ver compradores y deudores (${item.compradores.length})`}
                                           </button>
 
                                           {isExpanded && (
                                             <div className="mt-2 bg-white rounded-xl border border-slate-200 divide-y divide-slate-100 p-2 space-y-2">
                                               {item.compradores.map((c) => {
-                                                if (!c) return null;
-                                                const totalComp = (Number(c.cantidad) || 0) * inv.precioUnitario;
+                                                const totalComp = c.cantidad * inv.precioUnitario;
                                                 const abonoActual = c.estadoPago === 'PAGADO' ? totalComp : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalComp, Math.max(0, Number(c.montoAbonado) || 0));
                                                 const saldoPendiente = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalComp - abonoActual);
 
@@ -2313,7 +2269,7 @@ export default function App() {
                     </button>
                     <button
                       onClick={handleExportCSV}
-                      className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
                     >
                       <Download className="w-3.5 h-3.5" />
                       Descargar Excel
@@ -2417,7 +2373,7 @@ export default function App() {
                     }`}
                   >
                     <FileSpreadsheet className="w-4 h-4 text-emerald-400" />
-                    <span>Libro Único Completo ({(movimientos || []).length})</span>
+                    <span>Libro Único Completo ({movimientos.length})</span>
                   </button>
                 </div>
 
@@ -2430,14 +2386,14 @@ export default function App() {
                           Solicitudes de Deudas Incobrables (Dar de Baja)
                         </h3>
                         <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                          {(movimientos || [])
-                            .filter((m) => m && m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c && c.solicitudIncobrable))
+                          {movimientos
+                            .filter((m) => m.modoRegistro === 'UNIDADES' && Array.isArray(m.compradores) && m.compradores.some((c) => c.solicitudIncobrable))
                             .flatMap((item) => {
                               const precio = Number(item.precioUnitario) || 0;
-                              return (item.compradores || [])
-                                .filter((c) => c && c.solicitudIncobrable)
+                              return item.compradores
+                                .filter((c) => c.solicitudIncobrable)
                                 .map((c) => {
-                                  const totalC = (Number(c.cantidad) || 0) * precio;
+                                  const totalC = c.cantidad * precio;
                                   return (
                                     <div key={`${item.id}-${c.id}`} className="bg-white p-4 rounded-xl border border-amber-300 shadow-xs flex flex-col justify-between gap-3">
                                       <div>
@@ -2450,18 +2406,16 @@ export default function App() {
                                           <strong>Motivo:</strong> "{c.motivoIncobrable}"
                                         </p>
                                       </div>
-                                      <div className="flex items-center gap-2 pt-2 border-t border-slate-100">
+                                      <div className="flex items-center gap-2">
                                         <button
-                                          type="button"
                                           onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, true)}
-                                          className="flex-1 py-2 rounded-lg bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-xs"
+                                          className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all"
                                         >
-                                          Aprobar como Incobrable ✕
+                                          Aprobar (Dar de baja)
                                         </button>
                                         <button
-                                          type="button"
                                           onClick={() => handleTesoreroResolverIncobrable(item.id, c.id, false)}
-                                          className="py-2 px-3 rounded-lg bg-slate-200 hover:bg-slate-300 text-slate-800 font-bold text-xs"
+                                          className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
                                         >
                                           Rechazar
                                         </button>
@@ -2474,129 +2428,193 @@ export default function App() {
                       </div>
                     )}
 
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="font-bold text-base text-slate-900 mb-1">Bandeja de Entrada de Recaudos y Solicitudes de Edición</h3>
-                      <p className="text-xs text-slate-500 mb-4">Recibe el dinero en efectivo o transferencia, audita arqueos y autoriza correcciones si es necesario.</p>
+                    {kpis.cantidadSolicitudesEdicion > 0 && (
+                      <div className="bg-indigo-50 rounded-2xl border-2 border-indigo-200 p-5 shadow-sm">
+                        <h3 className="font-bold text-indigo-950 text-sm mb-3 flex items-center gap-2">
+                          <Edit3 className="w-4 h-4 text-indigo-800" />
+                          Solicitudes de Edición Pendientes
+                        </h3>
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          {movimientos
+                            .filter((m) => m.solicitudEdicion)
+                            .map((item) => (
+                              <div key={item.id} className="bg-white p-4 rounded-xl border border-indigo-200 shadow-xs flex flex-col justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center justify-between">
+                                    <span className="text-xs font-mono font-bold bg-indigo-100 text-indigo-900 px-2 py-0.5 rounded">
+                                      {item.id}
+                                    </span>
+                                    <span className="text-xs font-semibold text-slate-500">{item.responsable}</span>
+                                  </div>
+                                  <h4 className="font-bold text-slate-900 text-sm mt-1">{item.actividad}</h4>
+                                  <p className="text-xs text-amber-900 bg-amber-50 p-2.5 rounded-lg border border-amber-200 mt-2">
+                                    <strong>Motivo:</strong> "{item.motivoEdicion}"
+                                  </p>
+                                </div>
+                                <div className="flex items-center gap-2">
+                                  <button
+                                    onClick={() => handleAutorizarEdicionTesorero(item, true)}
+                                    className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all"
+                                  >
+                                    Autorizar Edición
+                                  </button>
+                                  <button
+                                    onClick={() => handleAutorizarEdicionTesorero(item, false)}
+                                    className="py-2 px-3 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
+                                  >
+                                    Rechazar
+                                  </button>
+                                </div>
+                              </div>
+                            ))}
+                        </div>
+                      </div>
+                    )}
 
-                      <div className="space-y-4">
-                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO').length === 0 ? (
-                          <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">No hay recaudos enviados por los recaudadores todavía.</p>
-                          </div>
+                    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                            <Clock className="w-5 h-5 text-amber-600" />
+                            Pendientes por Recoger ({movimientos.filter((m) => m.estado === 'PENDIENTE').length})
+                          </h3>
+                        </div>
+
+                        {movimientos.filter((m) => m.estado === 'PENDIENTE').length === 0 ? (
+                          <p className="text-sm text-slate-500 py-10 text-center">No hay recaudos pendientes por recibir.</p>
                         ) : (
-                          (movimientos || [])
-                            .filter((m) => m && m.tipo === 'INGRESO')
-                            .map((item) => {
-                              if (!item) return null;
-                              const inv = calcularResumenInventario(item);
-                              const abonoOpendienteARecibir = Number(item.ultimoAbonoReportado) > 0 ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado || 0);
+                          <div className="space-y-3">
+                            {movimientos
+                              .filter((m) => m.estado === 'PENDIENTE')
+                              .map((item) => {
+                                const inv = calcularResumenInventario(item);
+                                const tieneAbonoAcumulado = Number(item.ultimoAbonoReportado) > 0;
+                                const montoPendienteMostrar = tieneAbonoAcumulado ? Number(item.ultimoAbonoReportado) : Number(item.montoReportado);
 
-                              return (
-                                <div key={item.id} className="p-4 rounded-2xl border border-slate-200 bg-slate-50/60 shadow-xs space-y-3">
-                                  <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-3">
-                                    <div>
-                                      <div className="flex items-center gap-2 flex-wrap">
-                                        <span className="text-xs font-mono font-bold text-indigo-800 bg-indigo-100 px-2 py-0.5 rounded">
-                                          {item.id}
-                                        </span>
-                                        <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
-                                        <span className="text-xs text-slate-400">• {item.fecha}</span>
-                                        <span className="text-xs font-semibold text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                                          Recaudador: {item.responsable}
-                                        </span>
-                                      </div>
-                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
-                                    </div>
-
-                                    <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
-                                      <div className="text-right">
-                                        <span className="text-[10px] uppercase font-bold text-slate-400 block">Reportado en Total:</span>
-                                        <span className="text-lg font-extrabold text-slate-900">
-                                          {formatCOP(item.montoReportado)}
-                                        </span>
-                                        {Number(item.montoRecibido) > 0 && (
-                                          <span className="block text-[11px] text-emerald-700 font-bold">
-                                            Ya recibido en caja: {formatCOP(item.montoRecibido)}
-                                          </span>
-                                        )}
-                                      </div>
-                                      <div className="flex items-center gap-2 flex-wrap justify-end">
-                                        {item.solicitudEdicion && !item.edicionAutorizada && (
-                                          <div className="flex items-center gap-1 bg-amber-50 border border-amber-200 px-2.5 py-1 rounded-xl text-xs">
-                                            <span className="font-bold text-amber-900">Pide Editar: "{item.motivoEdicion}"</span>
-                                            <button
-                                              onClick={() => handleAutorizarEdicionTesorero(item, true)}
-                                              className="ml-2 px-2 py-0.5 bg-emerald-600 text-white rounded font-bold hover:bg-emerald-700"
-                                            >
-                                              Aprobar
-                                            </button>
-                                            <button
-                                              onClick={() => handleAutorizarEdicionTesorero(item, false)}
-                                              className="px-2 py-0.5 bg-rose-600 text-white rounded font-bold hover:bg-rose-700"
-                                            >
-                                              Rechazar
-                                            </button>
+                                return (
+                                  <div key={item.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/40 space-y-3">
+                                    <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-2">
+                                      <div>
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono font-bold text-amber-900 bg-amber-100 px-1.5 py-0.5 rounded">{item.id}</span>
+                                          <h4 className="font-bold text-sm text-slate-900">{item.actividad}</h4>
+                                        </div>
+                                        <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                        <p className="text-xs font-semibold text-slate-700 mt-0.5">
+                                          Recaudador: {item.responsable} ({item.metodoPago}) • {item.fecha}
+                                        </p>
+                                        {inv.esUnidades && (
+                                          <div className="text-[11px] text-slate-500 mt-1 flex gap-3">
+                                            <span>Fiados: {inv.unidadesFiadas} unid. ({formatCOP(inv.plataFiada)})</span>
+                                            <span>Incobrables: {inv.unidadesIncobrables} unid.</span>
                                           </div>
                                         )}
-                                        {renderEstadoBadge(item)}
+                                      </div>
+
+                                      <div className="flex flex-col items-end gap-1">
+                                        {tieneAbonoAcumulado ? (
+                                          <div className="bg-emerald-100 border border-emerald-300 px-3 py-2 rounded-xl text-right shadow-2xs">
+                                            <span className="text-[10px] uppercase font-extrabold text-emerald-800 block">Nuevo Abono a Recibir:</span>
+                                            <span className="font-extrabold text-lg text-emerald-950">{formatCOP(montoPendienteMostrar)}</span>
+                                          </div>
+                                        ) : (
+                                          <div className="bg-white px-3 py-2 rounded-xl border border-amber-200 shadow-2xs text-right">
+                                            <span className="text-[10px] uppercase font-bold text-amber-800 block">Total a Recibir:</span>
+                                            <span className="font-extrabold text-lg text-slate-900">{formatCOP(montoPendienteMostrar)}</span>
+                                          </div>
+                                        )}
                                       </div>
                                     </div>
-                                  </div>
 
-                                  {item.notaTesorero && (
-                                    <div className="bg-indigo-50 border border-indigo-100 p-2.5 rounded-xl text-xs text-indigo-950 flex items-start gap-2">
-                                      <Info className="w-4 h-4 text-indigo-600 shrink-0 mt-0.5" />
+                                    <div className="flex items-center gap-2 justify-end pt-2 border-t border-amber-200/60">
+                                      <button
+                                        onClick={() => openArqueoModal(item)}
+                                        className="px-4 py-2 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-xl shadow-xs transition-all flex items-center gap-1.5"
+                                      >
+                                        <Calculator className="w-3.5 h-3.5" />
+                                        Recibir y Contar
+                                      </button>
+                                      <button
+                                        onClick={() => handleCerrarRecaudoSinMasNovedad(item)}
+                                        className="px-4 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                        title="Cerrar si no hay más por reportar"
+                                      >
+                                        Cerrar (No hay más)
+                                      </button>
+                                    </div>
+                                  </div>
+                                );
+                              })}
+                          </div>
+                        )}
+                      </div>
+
+                      <div className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm">
+                        <div className="flex items-center justify-between mb-4">
+                          <h3 className="font-bold text-slate-900 flex items-center gap-2">
+                            <AlertTriangle className="w-5 h-5 text-rose-600" />
+                            Descuadres en Revisión ({movimientos.filter((m) => m.estado === 'DESCUADRE').length})
+                          </h3>
+                          <span className="text-xs font-bold text-rose-800 bg-rose-50 px-2.5 py-1 rounded-full border border-rose-200">
+                            {formatCOP(kpis.descuadreAcumulado)}
+                          </span>
+                        </div>
+
+                        {movimientos.filter((m) => m.estado === 'DESCUADRE').length === 0 ? (
+                          <p className="text-sm text-slate-500 py-10 text-center">No hay descuadres ni novedades en arqueo.</p>
+                        ) : (
+                          <div className="space-y-3">
+                            {movimientos
+                              .filter((m) => m.estado === 'DESCUADRE')
+                              .map((item) => {
+                                const diff = (Number(item.montoReportado) || 0) - (Number(item.montoRecibido) || 0);
+                                return (
+                                  <div key={item.id} className="p-4 rounded-xl border border-rose-200 bg-rose-50/40 space-y-3">
+                                    <div className="flex justify-between items-start">
                                       <div>
-                                        <strong className="font-bold">Nota / Historial:</strong> {item.notaTesorero}
+                                        <div className="flex items-center gap-2">
+                                          <span className="text-xs font-mono font-bold text-rose-900 bg-rose-100 px-1.5 py-0.5 rounded">{item.id}</span>
+                                          <h4 className="font-bold text-sm text-slate-900">{item.actividad} — {item.responsable}</h4>
+                                        </div>
+                                      </div>
+                                      <span className="px-2.5 py-1 bg-rose-600 text-white font-extrabold text-xs rounded-lg shadow-xs">
+                                        Faltan {formatCOP(Math.abs(diff))}
+                                      </span>
+                                    </div>
+
+                                    <div className="grid grid-cols-2 gap-2 text-xs bg-white p-2.5 rounded-lg border border-rose-100">
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px]">Reportado:</span>
+                                        <span className="font-extrabold text-slate-900">{formatCOP(item.montoReportado)}</span>
+                                      </div>
+                                      <div>
+                                        <span className="text-slate-400 block text-[10px]">Contado en caja:</span>
+                                        <span className="font-extrabold text-emerald-700">{formatCOP(item.montoRecibido)}</span>
                                       </div>
                                     </div>
-                                  )}
 
-                                  <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-slate-200">
-                                    <div className="text-xs text-slate-600">
-                                      {inv.esUnidades ? (
-                                        <span>
-                                          Unidades producidas: <strong>{inv.producidas}</strong> | En mano: <strong>{formatCOP(inv.plataPagada)}</strong> | Cartera: <strong>{formatCOP(inv.plataFiada)}</strong>
-                                        </span>
-                                      ) : (
-                                        <span>Método de pago: <strong>{item.metodoPago || 'Efectivo'}</strong></span>
-                                      )}
-                                    </div>
+                                    <p className="text-xs bg-white p-2.5 rounded-lg border border-rose-200 text-rose-900 font-medium italic">
+                                      "{item.notaTesorero}"
+                                    </p>
 
-                                    <div className="flex items-center gap-2 flex-wrap">
-                                      {item.estado === 'PENDIENTE' && (
-                                        <>
-                                          <button
-                                            type="button"
-                                            onClick={() => openArqueoModal(item)}
-                                            className="px-3.5 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold shadow-xs transition-all flex items-center gap-1.5"
-                                          >
-                                            <Calculator className="w-3.5 h-3.5 text-emerald-400" />
-                                            Recibir y Arqueo ({formatCOP(abonoOpendienteARecibir)})
-                                          </button>
-                                          <button
-                                            type="button"
-                                            onClick={() => handleCerrarRecaudoSinMasNovedad(item)}
-                                            className="px-3 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold shadow-xs transition-all"
-                                          >
-                                            Recibir Conforme ✓
-                                          </button>
-                                        </>
-                                      )}
-                                      {item.estado === 'DESCUADRE' && (
-                                        <button
-                                          type="button"
-                                          onClick={() => handleAprobarAjusteDescuadre(item)}
-                                          className="px-3 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold shadow-xs transition-all"
-                                        >
-                                          Aprobar Ajuste y Cerrar
-                                        </button>
-                                      )}
+                                    <div className="flex gap-2 pt-1">
+                                      <button
+                                        onClick={() => openArqueoModal(item)}
+                                        className="flex-1 py-2 bg-white hover:bg-slate-50 border border-slate-300 text-slate-700 text-xs font-bold rounded-xl transition-all"
+                                      >
+                                        Recontar Dinero
+                                      </button>
+                                      <button
+                                        onClick={() => handleAprobarAjusteDescuadre(item)}
+                                        className="flex-1 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-xl shadow-xs transition-all"
+                                      >
+                                        Aprobar Ajuste y Cerrar
+                                      </button>
                                     </div>
                                   </div>
-                                </div>
-                              );
-                            })
+                                );
+                              })}
+                          </div>
                         )}
                       </div>
                     </div>
@@ -2604,21 +2622,19 @@ export default function App() {
                 )}
 
                 {tesoreroTab === 'EGRESOS' && (
-                  <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                    <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
-                      <div className="p-3 bg-rose-50 text-rose-700 rounded-xl">
-                        <TrendingDown className="w-6 h-6" />
-                      </div>
-                      <div>
-                        <h3 className="text-base font-bold text-slate-900">Registrar Salida de Caja / Egreso</h3>
-                        <p className="text-xs text-slate-500">Registra compras, servicios públicos, ayudas o gastos con opción de registrar sobrante devuelto.</p>
-                      </div>
+                  <div className="max-w-2xl bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="bg-indigo-950 px-6 py-4 text-white">
+                      <h3 className="font-bold text-base flex items-center gap-2">
+                        <TrendingDown className="w-5 h-5 text-rose-400" />
+                        Registrar Salida de Dinero (Egreso con Devolución de Sobrante)
+                      </h3>
+                      <p className="text-xs text-indigo-200 mt-0.5">Autoriza: <strong className="text-white">{usuarioLogueadoTesorero.nombre}</strong></p>
                     </div>
 
-                    <form onSubmit={handleRegistrarEgreso} className="space-y-4">
+                    <form onSubmit={handleRegistrarEgreso} className="p-6 space-y-4">
                       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha del Gasto</label>
                           <input
                             type="date"
                             required
@@ -2628,7 +2644,7 @@ export default function App() {
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Categoría del Gasto</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Categoría del Egreso</label>
                           <select
                             value={egrCategoria}
                             onChange={(e) => setEgrCategoria(e.target.value)}
@@ -2642,63 +2658,61 @@ export default function App() {
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Concepto / Descripción del Egreso</label>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Concepto / Detalle del Pago</label>
                         <input
                           type="text"
                           required
-                          placeholder="Ej. Compra de mercado para ayuda social, reparación de tubería..."
+                          placeholder="Ej. Compra de gas, carne y desechables..."
                           value={egrConcepto}
                           onChange={(e) => setEgrConcepto(e.target.value)}
                           className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                         />
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Responsable / A quien se entrega</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Persona Responsable</label>
                           <input
                             type="text"
                             required
-                            placeholder="Ej. Hno. Pedro Pérez"
+                            placeholder="Ej. Hno. Carlos"
                             value={egrResponsable}
                             onChange={(e) => setEgrResponsable(e.target.value)}
                             className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                           />
                         </div>
                         <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor Total Entregado ($)</label>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor Entregado ($)</label>
                           <input
                             type="number"
                             min="100"
                             step="100"
                             required
-                            placeholder="Ej. 150000"
+                            placeholder="Ej. 100000"
                             value={egrMonto}
                             onChange={(e) => setEgrMonto(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-rose-700 bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-emerald-800 mb-1">¿Sobró Plata? Devuelta ($)</label>
+                          <input
+                            type="number"
+                            min="0"
+                            step="100"
+                            placeholder="Ej. 15000"
+                            value={egrSobranteDevuelto}
+                            onChange={(e) => setEgrSobranteDevuelto(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-emerald-300 text-sm font-extrabold text-emerald-800 bg-emerald-50/50"
                           />
                         </div>
                       </div>
 
                       <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Sobrante Devuelto a Caja ($) (Opcional)</label>
-                        <input
-                          type="number"
-                          min="0"
-                          step="100"
-                          placeholder="Si sobró dinero y lo regresaron, pon el valor aquí..."
-                          value={egrSobranteDevuelto}
-                          onChange={(e) => setEgrSobranteDevuelto(e.target.value)}
-                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-emerald-700 bg-emerald-50/50"
-                        />
-                        <span className="text-[11px] text-slate-500 mt-1 block">Este valor se restará del gasto total y regresará automáticamente al saldo de caja.</span>
-                      </div>
-
-                      <div>
-                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Observaciones / Factura</label>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Número de Factura o Nota (Opcional)</label>
                         <input
                           type="text"
-                          placeholder="Número de factura o nota..."
+                          placeholder="Ej. Recibo #098"
                           value={egrNota}
                           onChange={(e) => setEgrNota(e.target.value)}
                           className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
@@ -2707,44 +2721,45 @@ export default function App() {
 
                       <button
                         type="submit"
-                        className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-4"
+                        className="w-full py-3.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
                       >
                         <TrendingDown className="w-4 h-4" />
-                        Registrar Egreso y Actualizar Caja
+                        Registrar Salida y Devolución de Sobrante en Caja
                       </button>
                     </form>
                   </div>
                 )}
 
                 {tesoreroTab === 'LIBRO' && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                    <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                  <div className="bg-white rounded-2xl border border-slate-200 shadow-sm overflow-hidden">
+                    <div className="p-5 border-b border-slate-200 flex flex-col sm:flex-row justify-between items-center gap-4 bg-slate-50/50">
                       <div>
-                        <h3 className="text-base font-bold text-slate-900">Libro Único de Tesorería</h3>
-                        <p className="text-xs text-slate-500">Historial completo e inalterable de ingresos, egresos y arqueos de la iglesia.</p>
+                        <h3 className="text-lg font-bold text-slate-900">Libro Único de Tesorería</h3>
+                        <p className="text-xs text-slate-500">Registro histórico unificado.</p>
                       </div>
 
-                      <div className="flex flex-wrap items-center gap-2">
-                        <div className="relative">
+                      <div className="flex items-center gap-2 w-full sm:w-auto flex-wrap">
+                        <div className="relative flex-1 sm:w-64">
                           <Search className="w-4 h-4 text-slate-400 absolute left-3 top-3" />
                           <input
                             type="text"
-                            placeholder="Buscar en el libro..."
+                            placeholder="Buscar actividad o persona..."
                             value={busquedaLibro}
                             onChange={(e) => setBusquedaLibro(e.target.value)}
-                            className="pl-9 pr-4 py-2 rounded-xl border border-slate-300 text-xs bg-white w-full sm:w-56"
+                            className="w-full pl-9 pr-3 py-2 rounded-xl border border-slate-300 text-xs bg-white outline-none focus:ring-2 focus:ring-indigo-600"
                           />
                         </div>
                         <select
                           value={filtroLibro}
                           onChange={(e) => setFiltroLibro(e.target.value)}
-                          className="px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white font-semibold"
+                          className="px-3 py-2 rounded-xl border border-slate-300 text-xs font-semibold bg-white"
                         >
                           <option value="TODOS">Todos los movimientos</option>
-                          <option value="INGRESOS">Solo Ingresos</option>
-                          <option value="EGRESOS">Solo Egresos</option>
                           <option value="VERIFICADO">Verificados</option>
                           <option value="PENDIENTE">Pendientes</option>
+                          <option value="DESCUADRE">Descuadres</option>
+                          <option value="INGRESOS">Solo Ingresos</option>
+                          <option value="EGRESOS">Solo Egresos</option>
                         </select>
                       </div>
                     </div>
@@ -2752,84 +2767,116 @@ export default function App() {
                     <div className="overflow-x-auto">
                       <table className="w-full text-left border-collapse">
                         <thead>
-                          <tr className="border-b border-slate-200 bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
-                            <th className="p-3">ID / Fecha</th>
-                            <th className="p-3">Tipo / Actividad</th>
-                            <th className="p-3">Descripción</th>
-                            <th className="p-3">Responsable</th>
-                            <th className="p-3 text-right">Entrada / Salida</th>
-                            <th className="p-3 text-center">Estado</th>
-                            <th className="p-3 text-center">Acciones</th>
+                          <tr className="bg-slate-100 text-slate-600 text-[11px] uppercase border-b border-slate-200">
+                            <th className="py-3.5 px-4 font-bold">Fecha / ID</th>
+                            <th className="py-3.5 px-4 font-bold">Actividad / Concepto</th>
+                            <th className="py-3.5 px-4 font-bold">Responsable / Usuario</th>
+                            <th className="py-3.5 px-4 font-bold text-right">Reportado</th>
+                            <th className="py-3.5 px-4 font-bold text-right text-emerald-800">Entrada Real</th>
+                            <th className="py-3.5 px-4 font-bold text-right text-rose-800">Salida Neta</th>
+                            <th className="py-3.5 px-4 font-bold">Estado</th>
+                            <th className="py-3.5 px-4 font-bold text-center">Acciones</th>
                           </tr>
                         </thead>
-                        <tbody className="divide-y divide-slate-100 text-xs">
+                        <tbody className="divide-y divide-slate-200 text-sm">
                           {movimientosFiltrados.length === 0 ? (
                             <tr>
-                              <td colSpan="7" className="text-center py-12 text-slate-500">
-                                No se encontraron registros con los filtros seleccionados.
+                              <td colSpan="8" className="text-center py-12 text-slate-500 text-xs font-medium">
+                                No se encontraron registros en el libro.
                               </td>
                             </tr>
                           ) : (
                             movimientosFiltrados.map((m) => {
-                              if (!m) return null;
-                              const esIngreso = m.tipo === 'INGRESO';
-                              const montoMostrar = esIngreso ? Number(m.montoRecibido) || Number(m.montoReportado) : (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0);
-
+                              const inv = calcularResumenInventario(m);
+                              const salidaRealMuestra = m.tipo === 'EGRESO' ? Math.max(0, (Number(m.montoSalida) || 0) - (Number(m.montoSobranteDevuelto) || 0)) : 0;
                               return (
                                 <tr key={m.id} className="hover:bg-slate-50/80 transition-colors">
-                                  <td className="p-3 whitespace-nowrap">
-                                    <span className="font-mono font-bold text-indigo-800">{m.id}</span>
-                                    <span className="block text-[10px] text-slate-400">{m.fecha}</span>
+                                  <td className="py-3.5 px-4 text-xs font-semibold">
+                                    <span className="block text-slate-900">{m.fecha}</span>
+                                    <span className="font-mono text-[10px] text-slate-400 font-bold">{m.id}</span>
                                   </td>
-                                  <td className="p-3">
-                                    <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold mb-0.5 ${esIngreso ? 'bg-indigo-100 text-indigo-900' : 'bg-rose-100 text-rose-900'}`}>
-                                      {m.tipo}
-                                    </span>
-                                    <span className="block font-bold text-slate-800">{m.actividad}</span>
-                                  </td>
-                                  <td className="p-3 text-slate-600 max-w-xs truncate" title={m.descripcion}>
-                                    {m.descripcion}
-                                    {m.notaTesorero && <span className="block text-[10px] text-indigo-700 italic">Nota: {m.notaTesorero}</span>}
-                                  </td>
-                                  <td className="p-3 text-slate-700 font-medium">{m.responsable}</td>
-                                  <td className="p-3 text-right font-extrabold whitespace-nowrap">
-                                    {esIngreso ? (
-                                      <span className="text-emerald-700">+{formatCOP(montoMostrar)}</span>
-                                    ) : (
-                                      <span className="text-rose-600">-{formatCOP(montoMostrar)}</span>
+                                  <td className="py-3.5 px-4 text-xs">
+                                    <div className="flex items-center gap-2 flex-wrap">
+                                      <span className="font-bold text-slate-900 text-sm">{m.actividad}</span>
+                                      {inv.esUnidades && (
+                                        <span className="px-2 py-0.5 rounded bg-indigo-50 text-indigo-900 font-bold text-[10px]">
+                                          {inv.unidadesPagadas}/{inv.producidas} unid. pagadas
+                                        </span>
+                                      )}
+                                    </div>
+                                    <span className="text-slate-600 block mt-0.5">{m.descripcion}</span>
+                                    {m.montoSobranteDevuelto > 0 && (
+                                      <span className="block text-[11px] text-emerald-800 font-bold mt-1 bg-emerald-50 p-1.5 rounded border border-emerald-200">
+                                        Sobrante devuelto a caja: {formatCOP(m.montoSobranteDevuelto)}
+                                      </span>
+                                    )}
+                                    {m.notaTesorero && (
+                                      <span className="block text-[11px] text-indigo-800 font-medium mt-1 bg-indigo-50/50 p-1.5 rounded border border-indigo-100">
+                                        Nota / Devolución: {m.notaTesorero}
+                                      </span>
+                                    )}
+
+                                    {inv.esUnidades && m.compradores && m.compradores.length > 0 && (
+                                      <div className="mt-2 pt-2 border-t border-slate-100">
+                                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                                          {m.compradores.map((c) => {
+                                            const totalC = c.cantidad * inv.precioUnitario;
+                                            const abonoC = c.estadoPago === 'PAGADO' ? totalC : c.estadoPago === 'INCOBRABLE' ? 0 : Math.min(totalC, Number(c.montoAbonado) || 0);
+                                            const saldoC = c.estadoPago === 'INCOBRABLE' ? 0 : Math.max(0, totalC - abonoC);
+                                            return (
+                                              <div key={c.id} className="bg-slate-50 border border-slate-200 p-2 rounded-lg text-[11px]">
+                                                <div className="flex justify-between font-bold text-slate-800">
+                                                  <span>{c.nombre}</span>
+                                                  <span className={c.estadoPago === 'PAGADO' ? 'text-emerald-700' : c.estadoPago === 'INCOBRABLE' ? 'text-amber-800' : 'text-rose-700'}>
+                                                    {c.estadoPago === 'PAGADO' ? 'PAGADO ✓' : c.estadoPago === 'INCOBRABLE' ? 'INCOBRABLE ✕' : `Debe ${formatCOP(saldoC)}`}
+                                                  </span>
+                                                </div>
+                                                <span className="text-slate-500">{c.cantidad} unid. ({formatCOP(totalC)})</span>
+                                              </div>
+                                            );
+                                          })}
+                                        </div>
+                                      </div>
                                     )}
                                   </td>
-                                  <td className="p-3 text-center whitespace-nowrap">
-                                    {renderEstadoBadge(m)}
+                                  <td className="py-3.5 px-4 text-xs text-slate-900 font-bold">{m.responsable}</td>
+                                  <td className="py-3.5 px-4 text-right text-xs font-semibold text-slate-900">
+                                    {m.tipo === 'INGRESO' ? formatCOP(m.montoReportado) : '—'}
                                   </td>
-                                  <td className="p-3 text-center whitespace-nowrap">
-                                    <div className="flex items-center justify-center gap-1.5">
-                                      {m.solicitudBorrado ? (
-                                        <span className="px-2 py-1 bg-amber-100 text-amber-900 text-[10px] font-bold rounded">
-                                          Esperando Pastor
-                                        </span>
-                                      ) : m.borradoAutorizado ? (
+                                  <td className="py-3.5 px-4 text-right text-xs font-extrabold text-emerald-700">
+                                    {m.montoRecibido > 0 ? formatCOP(m.montoRecibido) : '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4 text-right text-xs font-extrabold text-rose-600">
+                                    {m.tipo === 'EGRESO' ? formatCOP(salidaRealMuestra) : '—'}
+                                  </td>
+                                  <td className="py-3.5 px-4">{renderEstadoBadge(m)}</td>
+                                  <td className="py-3.5 px-4 text-center">
+                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
+                                      {m.tipo === 'INGRESO' && m.estado !== 'VERIFICADO' && (
                                         <button
-                                          type="button"
-                                          onClick={() => setEliminarItemModal(m)}
-                                          className="px-2.5 py-1 rounded bg-rose-600 hover:bg-rose-700 text-white font-bold text-[10px] shadow-xs"
-                                          title="Pastor autorizó borrar"
+                                          onClick={() => openArqueoModal(m)}
+                                          className="px-2.5 py-1.5 bg-indigo-950 hover:bg-indigo-900 text-white text-xs font-bold rounded-lg shadow-xs transition-all"
+                                          title="Realizar Arqueo"
                                         >
-                                          Eliminar (Autorizado)
-                                        </button>
-                                      ) : (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setSolicitudBorradoModal(m);
-                                            setMotivoBorradoInput('');
-                                          }}
-                                          className="px-2 py-1 rounded bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold text-[10px] border border-slate-300"
-                                          title="Solicitar permiso al Pastor para borrar"
-                                        >
-                                          Solicitar Borrado
+                                          Arqueo
                                         </button>
                                       )}
+                                      <button
+                                        onClick={() => setEditingTesoreroMov({ ...m })}
+                                        className="px-2.5 py-1.5 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                                        title="Corregir o hacer devolución al recaudador"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5" />
+                                        Modificar / Devolución
+                                      </button>
+                                      <button
+                                        onClick={() => setEliminarItemModal(m)}
+                                        className="px-2.5 py-1.5 bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold rounded-lg shadow-xs transition-all flex items-center gap-1"
+                                        title="Eliminar registro"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5" />
+                                        Borrar
+                                      </button>
                                     </div>
                                   </td>
                                 </tr>
@@ -2853,12 +2900,12 @@ export default function App() {
                 <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <ShieldAlert className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Panel Exclusivo Pastor / Administrador</h2>
-                <p className="text-sm text-slate-500 mt-1">Acceso restringido para auditoría, cierres de mes y permisos de borrado.</p>
+                <h2 className="text-xl font-bold text-slate-900">Ingreso Módulo Administrador</h2>
+                <p className="text-sm text-slate-500 mt-1">Gestiona usuarios, roles, logo y nombre del sistema.</p>
 
                 <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Administrador</label>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario Admin</label>
                     <input
                       type="text"
                       required
@@ -2870,7 +2917,7 @@ export default function App() {
                     />
                   </div>
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña</label>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
                     <input
                       type="password"
                       required
@@ -2883,753 +2930,332 @@ export default function App() {
                   {adminLoginError && (
                     <p className="text-xs text-rose-600 font-semibold">{adminLoginError}</p>
                   )}
-
                   <button
                     type="submit"
-                    className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
+                    className="w-full py-3 rounded-xl bg-amber-500 hover:bg-amber-600 text-indigo-950 font-extrabold text-sm shadow-md transition-all mt-2"
                   >
-                    Entrar como Pastor / Admin
+                    Ingresar como Administrador
                   </button>
                 </form>
               </div>
             ) : (
-              <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-900 shadow-md">
+              <div className="space-y-6 max-w-4xl mx-auto">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200 shadow-sm">
                   <div className="flex items-center gap-2.5">
-                    <span className="w-3 h-3 rounded-full bg-amber-400 animate-ping"></span>
-                    <span className="text-sm font-bold">
-                      Sesión Pastor / Administrador Activa: <span className="text-amber-300 underline">{usuarioLogueadoAdmin.nombre}</span>
+                    <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse"></span>
+                    <span className="text-sm font-bold text-slate-800">
+                      Administrador Conectado: <span className="text-amber-700 underline">{usuarioLogueadoAdmin.nombre}</span>
                     </span>
                   </div>
-                  <button
-                    onClick={() => setUsuarioLogueadoAdmin(null)}
-                    className="inline-flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-white/10 hover:bg-white/20 text-white text-xs font-semibold transition-all"
-                  >
-                    <Lock className="w-3.5 h-3.5" />
-                    Cerrar Sesión Admin
-                  </button>
-                </div>
-
-                <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Saldo Real en Caja</span>
-                    <span className="text-xl font-extrabold text-indigo-900 mt-1 block">{formatCOP(kpis.saldoRealEnCaja)}</span>
-                  </div>
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Total Entradas</span>
-                    <span className="text-xl font-extrabold text-emerald-700 mt-1 block">{formatCOP(kpis.totalEntradasVerificadas)}</span>
-                  </div>
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Total Salidas Netas</span>
-                    <span className="text-xl font-extrabold text-rose-600 mt-1 block">{formatCOP(kpis.totalSalidas)}</span>
-                  </div>
-                  <div className="bg-white p-4 rounded-2xl border border-slate-200 shadow-sm text-center">
-                    <span className="text-[11px] font-bold uppercase text-slate-500 block">Cierres Realizados</span>
-                    <span className="text-xl font-extrabold text-indigo-950 mt-1 block">{(cierresMensuales || []).length} meses</span>
+                  <div className="flex items-center gap-2">
+                    <button
+                      onClick={() => setShowBorrarTodoModal(true)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white text-xs font-bold transition-all"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                      Borrar Base de Datos
+                    </button>
+                    <button
+                      onClick={() => setUsuarioLogueadoAdmin(null)}
+                      className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-semibold transition-all"
+                    >
+                      <Lock className="w-3.5 h-3.5" />
+                      Cerrar Sesión
+                    </button>
                   </div>
                 </div>
 
-                <div className="flex flex-wrap gap-2 border-b border-slate-200 pb-2">
-                  <button
-                    onClick={() => setAdminTab('AUDITORIA')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'AUDITORIA' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Calculator className="w-4 h-4 text-amber-400" />
-                    <span>Auditoría & Cierre de Mes (Pastor)</span>
-                  </button>
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                  <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                    <Settings className="w-5 h-5 text-indigo-700" />
+                    Personalizar Nombre y Logo de la Institución
+                  </h3>
+                  <p className="text-xs text-slate-500">Cambia el título principal y la imagen del logo en la parte superior del sistema para todos los usuarios.</p>
 
-                  <button
-                    onClick={() => setAdminTab('BORRADOS')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'BORRADOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Trash2 className="w-4 h-4 text-rose-400" />
-                    <span>Permisos de Borrado Libro Único</span>
-                    {kpis.cantidadSolicitudesBorrado > 0 && (
-                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-rose-600 text-white font-extrabold animate-pulse">
-                        {kpis.cantidadSolicitudesBorrado}
-                      </span>
-                    )}
-                  </button>
-
-                  <button
-                    onClick={() => setAdminTab('USUARIOS')}
-                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
-                      adminTab === 'USUARIOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
-                    }`}
-                  >
-                    <Users className="w-4 h-4 text-emerald-400" />
-                    <span>Gestión de Usuarios y Claves</span>
-                    {(usuariosSistema || []).some(u => u && u.solicitudClave) && (
-                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
-                        1
-                      </span>
-                    )}
-                  </button>
+                  <form onSubmit={handleGuardarConfiguracionAdmin} className="space-y-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título Principal</label>
+                        <input
+                          type="text"
+                          required
+                          value={inputConfigTitulo}
+                          onChange={(e) => setInputConfigTitulo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white font-bold"
+                          placeholder="Ej. Tesorería Parroquia San José"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL de la Imagen del Logo</label>
+                        <input
+                          type="url"
+                          value={inputConfigLogo}
+                          onChange={(e) => setInputConfigLogo(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                          placeholder="https://ejemplo.com/logo.png"
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Descripción corta</label>
+                      <input
+                        type="text"
+                        value={inputConfigSub}
+                        onChange={(e) => setInputConfigSub(e.target.value)}
+                        className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
+                        placeholder="Ej. Control de Recaudos y Abonos"
+                      />
+                    </div>
+                    <button
+                      type="submit"
+                      className="px-5 py-3 bg-indigo-950 hover:bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs transition-all"
+                    >
+                      Guardar Cambios de Identidad
+                    </button>
+                  </form>
                 </div>
 
-                {adminTab === 'AUDITORIA' && (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                      <div className="max-w-xl mx-auto space-y-6 text-center">
-                        <div className="w-16 h-16 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                          <Calendar className="w-8 h-8" />
+                {usuariosSistema.some(u => u.solicitudClave) && (
+                  <div className="bg-amber-50 rounded-2xl border-2 border-amber-300 p-5 shadow-sm">
+                    <h3 className="font-bold text-amber-950 text-sm mb-3 flex items-center gap-2">
+                      <KeyRound className="w-5 h-5 text-amber-700" />
+                      Solicitudes de Recuperación de Contraseña
+                    </h3>
+                    <div className="space-y-3">
+                      {usuariosSistema
+                        .filter(u => u.solicitudClave)
+                        .map(u => (
+                          <div key={u.id} className="bg-white p-4 rounded-xl border border-amber-200 shadow-xs flex items-center justify-between gap-3">
+                            <div>
+                              <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                              <span className="text-xs text-slate-500 block">Usuario: <strong className="font-mono text-indigo-900">{u.usuario}</strong> ({u.rol})</span>
+                            </div>
+                            <div className="flex items-center gap-2">
+                              <button
+                                onClick={() => handleAutorizarCambioClave(u.id, true)}
+                                className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold rounded-lg transition-all shadow-xs"
+                              >
+                                Autorizar Cambio
+                              </button>
+                              <button
+                                onClick={() => handleAutorizarCambioClave(u.id, false)}
+                                className="px-3 py-2 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold rounded-lg transition-all"
+                              >
+                                Rechazar
+                              </button>
+                            </div>
+                          </div>
+                        ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-6">
+                  <div>
+                    <h3 className="font-bold text-lg text-slate-900 flex items-center gap-2">
+                      <Users className="w-5 h-5 text-indigo-700" />
+                      Gestión Integral de Usuarios
+                    </h3>
+                    <p className="text-xs text-slate-500">Modifica datos, cambia claves, activa/inactiva accesos o elimina usuarios del sistema.</p>
+                  </div>
+
+                  <div className="space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-slate-600">Usuarios Registrados en el Sistema</h4>
+                    <div className="max-h-64 overflow-y-auto divide-y divide-slate-100 rounded-xl border border-slate-200 bg-slate-50 p-2">
+                      {usuariosSistema.map((u) => (
+                        <div key={u.id} className="py-2.5 px-3 flex items-center justify-between gap-2 text-xs bg-white rounded-lg mb-1 shadow-2xs">
+                          <div>
+                            <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                            <span className="text-slate-500 ml-1">({u.usuario})</span>
+                            <div className="flex items-center gap-2 mt-0.5">
+                              <span className={`px-2 py-0.5 rounded font-bold text-[10px] ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-indigo-100 text-indigo-900' : 'bg-emerald-100 text-emerald-900'}`}>
+                                {u.rol}
+                              </span>
+                              <span className="text-slate-400">Clave: {u.clave}</span>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-wrap">
+                            <button
+                              type="button"
+                              onClick={() => setEditingUser({ ...u })}
+                              className="px-2.5 py-1 bg-amber-600 hover:bg-amber-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              Modificar
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleToggleEstadoUsuario(u.id)}
+                              className={`px-2.5 py-1 rounded-lg text-xs font-bold transition-all flex items-center gap-1 ${
+                                u.activo
+                                  ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200'
+                                  : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
+                              }`}
+                            >
+                              {u.activo ? <UserCheck className="w-3.5 h-3.5" /> : <UserX className="w-3.5 h-3.5" />}
+                              {u.activo ? 'Activo' : 'Inactivo'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setEliminarUsuarioModal(u)}
+                              className="px-2.5 py-1 bg-rose-600 hover:bg-rose-700 text-white rounded-lg font-bold text-xs flex items-center gap-1 shadow-xs"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              Borrar
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="bg-indigo-50/70 p-4 rounded-xl border border-indigo-100 space-y-3">
+                    <h4 className="text-xs font-bold uppercase text-indigo-950 flex items-center gap-1.5">
+                      <UserPlus className="w-4 h-4 text-indigo-700" />
+                      Crear Nuevo Usuario
+                    </h4>
+
+                    <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. Hna. Sofía Pérez"
+                            value={nuevoUserNombre}
+                            onChange={(e) => setNuevoUserNombre(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
                         </div>
                         <div>
-                          <h3 className="text-xl font-bold text-slate-900">Ejecutar Cierre de Mes Oficial (Pastor)</h3>
-                          <p className="text-sm text-slate-500 mt-1">
-                            Selecciona el mes a cerrar. El sistema auditará las entradas, salidas y generará el acta oficial con las palabras automáticas del pastor para la firma única de tesorería y pastor.
-                          </p>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario (Login)</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Ej. sofia"
+                            value={nuevoUserAlias}
+                            onChange={(e) => setNuevoUserAlias(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white"
+                          />
                         </div>
+                      </div>
 
-                        <form onSubmit={handleEjecutarCierreDeMes} className="space-y-4 pt-2">
-                          <div className="flex items-center justify-center gap-3">
-                            <label className="text-xs font-bold uppercase text-slate-700">Mes a Cerrar (AAAA-MM):</label>
-                            <input
-                              type="month"
-                              required
-                              value={mesCierreInput}
-                              onChange={(e) => setMesCierreInput(e.target.value)}
-                              className="px-4 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold bg-white"
-                            />
-                          </div>
-
-                          <button
-                            type="submit"
-                            className="w-full py-3.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-sm shadow-md transition-all"
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña / Clave</label>
+                          <input
+                            type="text"
+                            required
+                            placeholder="Clave numérica..."
+                            value={nuevoUserClave}
+                            onChange={(e) => setNuevoUserClave(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-bold"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol en el Sistema</label>
+                          <select
+                            value={nuevoUserRol}
+                            onChange={(e) => setNuevoUserRol(e.target.value)}
+                            className="w-full px-3 py-2 rounded-lg border border-slate-300 text-xs bg-white font-semibold"
                           >
-                            Generar Auditoría y Sellar Cierre de Mes Oficial
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                      <h3 className="text-base font-bold text-slate-900">Historial de Cierres Mensuales y Actas Pastorales</h3>
-                      <div className="space-y-4">
-                        {(cierresMensuales || []).length === 0 ? (
-                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm text-slate-500 font-semibold">No hay cierres mensuales ejecutados todavía.</p>
-                          </div>
-                        ) : (
-                          (cierresMensuales || []).map((c) => {
-                            if (!c) return null;
-                            return (
-                              <div key={c.id} className="p-6 rounded-2xl border-2 border-indigo-950 bg-white shadow-md space-y-4">
-                                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-slate-200 pb-3">
-                                  <div>
-                                    <span className="text-xs font-mono font-bold bg-indigo-900 text-white px-2.5 py-1 rounded-md">
-                                      ACTA OFICIAL DE CIERRE MENSUAL: {c.mes}
-                                    </span>
-                                    <h4 className="font-extrabold text-slate-900 text-base mt-2">Iglesia - Informe Oficial de Tesorería</h4>
-                                  </div>
-                                  <div className="text-right text-xs text-slate-500">
-                                    <span>Fecha de corte: <strong>{c.fechaCierre}</strong></span>
-                                    <span className="block">Auditor Pastor: <strong>{c.responsableCierre}</strong></span>
-                                  </div>
-                                </div>
-
-                                <div className="text-sm text-slate-700 leading-relaxed italic bg-indigo-50/50 p-4 rounded-xl border border-indigo-100">
-                                  "En el mes de <strong>{c.mes}</strong>, bajo la dirección del Señor y la supervisión pastoral, la tesorería de la iglesia ha mantenido cuentas claras, transparentes y fieles. Se han auditado un total de {c.cantidadMovimientos} movimientos, registrando ingresos verificados por <strong>{formatCOP(c.totalEntradas)}</strong> y salidas netas por <strong>{formatCOP(c.totalSalidas)}</strong>, dejando un balance neto de <strong>{formatCOP(c.balanceNeto)}</strong> para la obra y la gloria de Dios. Concluimos este período con un saldo real en caja de <strong>{formatCOP(c.saldoCajaFinal)}</strong>."
-                                </div>
-
-                                <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 text-xs bg-slate-50 p-3 rounded-xl border border-slate-200 text-center">
-                                  <div>
-                                    <span className="text-slate-400 block">Total Entradas</span>
-                                    <span className="font-extrabold text-emerald-700 text-sm">{formatCOP(c.totalEntradas)}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-slate-400 block">Total Salidas</span>
-                                    <span className="font-extrabold text-rose-600 text-sm">{formatCOP(c.totalSalidas)}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-slate-400 block">Balance Neto</span>
-                                    <span className="font-extrabold text-indigo-900 text-sm">{formatCOP(c.balanceNeto)}</span>
-                                  </div>
-                                  <div>
-                                    <span className="text-slate-400 block">Saldo Final Caja</span>
-                                    <span className="font-extrabold text-indigo-950 text-sm">{formatCOP(c.saldoCajaFinal)}</span>
-                                  </div>
-                                </div>
-
-                                <div className="grid grid-cols-1 sm:grid-cols-2 gap-8 pt-6 mt-6 border-t border-slate-200 text-center">
-                                  <div className="space-y-2">
-                                    <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
-                                    <p className="font-bold text-xs text-slate-800">Firma del Pastor / Administrador</p>
-                                    <p className="text-[11px] text-slate-500">{c.responsableCierre}</p>
-                                  </div>
-                                  <div className="space-y-2">
-                                    <div className="h-12 border-b-2 border-slate-400 w-48 mx-auto"></div>
-                                    <p className="font-bold text-xs text-slate-800">Firma de Tesorería</p>
-                                    <p className="text-[11px] text-slate-500">Tesorero(a) Principal</p>
-                                  </div>
-                                </div>
-
-                                <div className="flex justify-end pt-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => window.print()}
-                                    className="px-4 py-2 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs flex items-center gap-2 shadow-xs"
-                                  >
-                                    <Download className="w-3.5 h-3.5" />
-                                    Imprimir Acta Oficial
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })
-                        )}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
-                {adminTab === 'BORRADOS' && (
-                  <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
-                    <h3 className="text-base font-bold text-slate-900">Autorización de Borrado en Libro Único</h3>
-                    <p className="text-xs text-slate-500">Tesorería solo puede borrar registros del libro si el Pastor / Administrador lo autoriza previamente.</p>
-
-                    <div className="space-y-3">
-                      {(movimientos || []).filter((m) => m && m.solicitudBorrado && !m.borradoAutorizado).length === 0 ? (
-                        <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                          <p className="text-sm text-slate-500 font-semibold">No hay solicitudes de borrado pendientes por aprobar.</p>
-                        </div>
-                      ) : (
-                        (movimientos || [])
-                          .filter((m) => m && m.solicitudBorrado && !m.borradoAutorizado)
-                          .map((item) => (
-                            <div key={item.id} className="p-4 rounded-xl border border-amber-300 bg-amber-50/50 flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                              <div>
-                                <div className="flex items-center gap-2">
-                                  <span className="font-mono font-bold text-amber-900 bg-amber-100 px-2 py-0.5 rounded text-xs">{item.id}</span>
-                                  <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
-                                  <span className="text-xs text-slate-500">• {item.fecha}</span>
-                                </div>
-                                <p className="text-xs text-slate-700 mt-1">{item.descripcion}</p>
-                                <p className="text-xs text-amber-900 bg-white p-2 rounded-lg border border-amber-200 mt-2">
-                                  <strong>Motivo de solicitud por Tesorería:</strong> "{item.motivoBorrado}"
-                                </p>
-                              </div>
-
-                              <div className="flex items-center gap-2 shrink-0">
-                                <button
-                                  type="button"
-                                  onClick={() => handleResolverBorradoAdmin(item, true)}
-                                  className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs"
-                                >
-                                  Autorizar Borrado ✓
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => handleResolverBorradoAdmin(item, false)}
-                                  className="px-4 py-2 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
-                                >
-                                  Denegar
-                                </button>
-                              </div>
-                            </div>
-                          ))
-                      )}
-                    </div>
-                  </div>
-                )}
-
-                {adminTab === 'USUARIOS' && (
-                  <div className="space-y-6">
-                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-bold text-slate-900 mb-4">Solicitudes de Clave y Restablecimiento</h3>
-                      {(usuariosSistema || []).some((u) => u && u.solicitudClave) ? (
-                        <div className="space-y-3">
-                          {(usuariosSistema || [])
-                            .filter((u) => u && u.solicitudClave)
-                            .map((usr) => (
-                              <div key={usr.id} className="p-4 rounded-xl bg-amber-50 border border-amber-300 flex items-center justify-between gap-4">
-                                <div>
-                                  <span className="font-bold text-amber-950 text-sm">El usuario <strong className="underline">{usr.nombre}</strong> (usuario: <em>{usr.usuario}</em>) solicita restablecer su contraseña.</span>
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAutorizarCambioClave(usr.id, true)}
-                                    className="px-3.5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs"
-                                  >
-                                    Autorizar Cambio ✓
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => handleAutorizarCambioClave(usr.id, false)}
-                                    className="px-3 py-2 bg-slate-200 hover:bg-slate-300 text-slate-800 rounded-xl text-xs font-bold"
-                                  >
-                                    Rechazar
-                                  </button>
-                                </div>
-                              </div>
-                            ))}
-                        </div>
-                      ) : (
-                        <p className="text-xs text-slate-500">No hay solicitudes de clave pendientes.</p>
-                      )}
-                    </div>
-
-                    <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                      <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                        <h3 className="text-base font-bold text-slate-900 mb-4">Crear Nuevo Usuario</h3>
-                        <form onSubmit={handleCrearUsuarioSistema} className="space-y-3">
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. Hno. Juan Pérez"
-                              value={nuevoUserNombre}
-                              onChange={(e) => setNuevoUserNombre(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Alias de Usuario</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="Ej. juan"
-                              value={nuevoUserAlias}
-                              onChange={(e) => setNuevoUserAlias(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Inicial</label>
-                            <input
-                              type="text"
-                              required
-                              placeholder="••••"
-                              value={nuevoUserClave}
-                              onChange={(e) => setNuevoUserClave(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol en el Sistema</label>
-                            <select
-                              value={nuevoUserRol}
-                              onChange={(e) => setNuevoUserRol(e.target.value)}
-                              className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
-                            >
-                              <option value="RECAUDADOR">Recaudador</option>
-                              <option value="TESORERO">Tesorería</option>
-                              <option value="ADMINISTRADOR">Pastor / Administrador</option>
-                            </select>
-                          </div>
-                          <button
-                            type="submit"
-                            className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
-                          >
-                            Crear Usuario
-                          </button>
-                        </form>
-                      </div>
-
-                      <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                        <h3 className="text-base font-bold text-slate-900 mb-4">Usuarios Registrados en el Sistema</h3>
-                        <div className="space-y-3">
-                          {(usuariosSistema || []).map((u) => {
-                            if (!u) return null;
-                            return (
-                              <div key={u.id} className="p-3.5 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-between gap-3">
-                                <div>
-                                  <div className="flex items-center gap-2">
-                                    <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${u.rol === 'ADMINISTRADOR' ? 'bg-amber-100 text-amber-900' : u.rol === 'TESORERO' ? 'bg-emerald-100 text-emerald-900' : 'bg-indigo-100 text-indigo-900'}`}>
-                                      {u.rol}
-                                    </span>
-                                  </div>
-                                  <p className="text-xs text-slate-500 mt-0.5">Usuario: <strong className="text-slate-700">{u.usuario}</strong> | Clave: {u.clave}</p>
-                                </div>
-
-                                <div className="flex items-center gap-2">
-                                  <button
-                                    type="button"
-                                    onClick={() => handleToggleEstadoUsuario(u.id)}
-                                    className={`px-3 py-1.5 rounded-lg text-xs font-bold ${u.activo ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'}`}
-                                  >
-                                    {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
-                                  </button>
-                                  <button
-                                    type="button"
-                                    onClick={() => setEliminarUsuarioModal(u)}
-                                    className="text-slate-400 hover:text-rose-600 p-1"
-                                    title="Eliminar usuario"
-                                  >
-                                    <Trash2 className="w-4 h-4" />
-                                  </button>
-                                </div>
-                              </div>
-                            );
-                          })}
+                            <option value="RECAUDADOR">Recaudador</option>
+                            <option value="TESORERO">Tesorero Central</option>
+                            <option value="ADMINISTRADOR">Administrador</option>
+                          </select>
                         </div>
                       </div>
-                    </div>
+
+                      <button
+                        type="submit"
+                        className="w-full py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-lg text-xs font-bold shadow-xs transition-all mt-1"
+                      >
+                        Registrar Nuevo Usuario Activo
+                      </button>
+                    </form>
                   </div>
-                )}
+                </div>
               </div>
             )}
           </>
         )}
       </main>
 
-      {/* MODALES AUXILIARES */}
-      {abonoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Registrar Abono para {abonoModal.comprador.nombre}</h3>
-            <p className="text-xs text-slate-500">Saldo pendiente actual: <strong className="text-rose-600">{formatCOP(abonoModal.saldoPendiente)}</strong></p>
-
-            <form onSubmit={handleConfirmarAbono} className="space-y-4">
+      {showCambioClaveRecaudadorModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-indigo-700" />
+              Cambiar mi Contraseña
+            </h3>
+            <form onSubmit={handleCambiarClavePropiaRecaudador} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor del Abono ($)</label>
-                <input
-                  type="number"
-                  min="100"
-                  step="100"
-                  required
-                  autoFocus
-                  value={valorAbonoInput}
-                  onChange={(e) => setValorAbonoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setAbonoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
-                >
-                  Confirmar Abono
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {arqueoItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Dinero</h3>
-            <p className="text-xs text-slate-500">Recaudo: <strong>{arqueoItem.actividad}</strong> (Responsable: {arqueoItem.responsable})</p>
-
-            <form onSubmit={handleConfirmarArqueo} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Monto Físico Contado ($)</label>
-                <input
-                  type="number"
-                  min="0"
-                  step="100"
-                  required
-                  autoFocus
-                  value={montoFisicoContado}
-                  onChange={(e) => setMontoFisicoContado(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-slate-900 bg-white"
-                />
-              </div>
-
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nota o Observación del Arqueo</label>
-                <input
-                  type="text"
-                  value={notaArqueo}
-                  onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setArqueoItem(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
-                >
-                  Guardar Arqueo
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {solicitudEdicionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
-            <p className="text-xs text-slate-500">Escribe por qué necesitas modificar este recaudo para que Tesorería te autorice.</p>
-
-            <form onSubmit={handleEnviarSolicitudEdicion} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ej. Me equivoqué en la cantidad de tamales..."
-                  value={motivoSolicitudEdicion}
-                  onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSolicitudEdicionModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
-                >
-                  Enviar Solicitud
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {solicitudIncobrableModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Solicitud de Deuda Incobrable</h3>
-            <p className="text-xs text-slate-500">Explica por qué esta deuda no se va a poder cobrar para que Tesorería la apruebe.</p>
-
-            <form onSubmit={handleEnviarSolicitudIncobrable} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ej. La persona se mudó de la ciudad y no contesta..."
-                  value={motivoIncobrableInput}
-                  onChange={(e) => setMotivoIncobrableInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSolicitudIncobrableModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md"
-                >
-                  Enviar a Tesorería
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {solicitudBorradoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Borrado al Pastor</h3>
-            <p className="text-xs text-slate-500">Escribe el motivo por el cual necesitas eliminar este registro del libro único.</p>
-
-            <form onSubmit={handleEnviarSolicitudBorrado} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  autoFocus
-                  placeholder="Ej. Registro duplicado por error..."
-                  value={motivoBorradoInput}
-                  onChange={(e) => setMotivoBorradoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setSolicitudBorradoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
-                >
-                  Enviar al Pastor
-                </button>
-              </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {eliminarItemModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 animate-in fade-in zoom-in">
-            <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center mx-auto">
-              <AlertTriangle className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-base text-slate-900">¿Eliminar registro del libro?</h3>
-            <p className="text-xs text-slate-500">El Pastor ha autorizado el borrado de este registro.</p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEliminarItemModal(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleEliminarRegistroLibro}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {eliminarUsuarioModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 text-center space-y-4 animate-in fade-in zoom-in">
-            <div className="w-12 h-12 bg-rose-100 text-rose-700 rounded-full flex items-center justify-center mx-auto">
-              <Trash2 className="w-6 h-6" />
-            </div>
-            <h3 className="font-bold text-base text-slate-900">¿Eliminar usuario {eliminarUsuarioModal.nombre}?</h3>
-            <p className="text-xs text-slate-500">Ya no podrá iniciar sesión en el sistema.</p>
-            <div className="flex items-center gap-2 pt-2">
-              <button
-                type="button"
-                onClick={() => setEliminarUsuarioModal(null)}
-                className="flex-1 py-2.5 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-bold text-xs"
-              >
-                Cancelar
-              </button>
-              <button
-                type="button"
-                onClick={handleConfirmarEliminarUsuario}
-                className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-              >
-                Sí, Eliminar
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showCambioClaveRecaudadorModal && usuarioLogueadoRecaudador && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Cambiar Contraseña</h3>
-            <form onSubmit={handleCambiarClavePropiaRecaudador} className="space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña Actual</label>
                 <input
                   type="password"
                   required
+                  placeholder="••••"
                   value={claveActualRecInput}
                   onChange={(e) => setClaveActualRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
+                  autoFocus
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
                 <input
                   type="password"
                   required
+                  placeholder="Nueva clave..."
                   value={claveNuevaRecInput}
                   onChange={(e) => setClaveNuevaRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-bold"
                 />
               </div>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCambioClaveRecaudadorModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Guardar
-                </button>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowCambioClaveRecaudadorModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar mi Clave</button>
               </div>
             </form>
           </div>
         </div>
       )}
 
-      {showCambioClaveTesoreroModal && usuarioLogueadoTesorero && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Cambiar Contraseña Tesorería</h3>
-            <form onSubmit={handleCambiarClavePropiaTesorero} className="space-y-4">
+      {showCambioClaveTesoreroModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-indigo-700" />
+              Cambiar mi Contraseña de Tesorero
+            </h3>
+            <form onSubmit={handleCambiarClavePropiaTesorero} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña Actual</label>
                 <input
                   type="password"
                   required
+                  placeholder="••••"
                   value={claveActualTesInput}
                   onChange={(e) => setClaveActualTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
+                  autoFocus
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
                 <input
-                  type="password"
+                  type="text"
                   required
+                  placeholder="Nueva clave..."
                   value={claveNuevaTesInput}
                   onChange={(e) => setClaveNuevaTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-bold"
                 />
               </div>
-              <div className="flex items-center gap-2 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setShowCambioClaveTesoreroModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Guardar
-                </button>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowCambioClaveTesoreroModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar mi Clave</button>
               </div>
             </form>
           </div>
@@ -3637,35 +3263,25 @@ export default function App() {
       )}
 
       {showOlvidoClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Recuperar Contraseña</h3>
-            <p className="text-xs text-slate-500">Ingresa tu usuario (alias) para enviar una solicitud de restablecimiento al Administrador.</p>
-            <form onSubmit={handleEnviarSolicitudClave} className="space-y-4">
-              <div>
-                <input
-                  type="text"
-                  required
-                  placeholder="Tu usuario (ej. marta)"
-                  value={usuarioOlvidoInput}
-                  onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowOlvidoClaveModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
-                >
-                  Enviar Solicitud
-                </button>
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-indigo-950 flex items-center gap-2">
+              <HelpCircle className="w-5 h-5 text-indigo-700" />
+              Recuperar Contraseña
+            </h3>
+            <form onSubmit={handleEnviarSolicitudClave}>
+              <input
+                type="text"
+                required
+                placeholder="Ej. marta"
+                value={usuarioOlvidoInput}
+                onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
+                className="w-full px-3.5 py-2.5 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 bg-white font-medium"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setShowOlvidoClaveModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 hover:bg-indigo-900 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
               </div>
             </form>
           </div>
@@ -3673,47 +3289,335 @@ export default function App() {
       )}
 
       {showRestablecerClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full p-6 space-y-4 animate-in fade-in zoom-in">
-            <h3 className="font-bold text-base text-slate-900">Restablecer con Autorización</h3>
-            <p className="text-xs text-slate-500">Si el Administrador ya te autorizó, ingresa tu usuario y tu nueva contraseña.</p>
-            <form onSubmit={handleConfirmarNuevoCambioClave} className="space-y-4">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-emerald-900 flex items-center gap-2">
+              <KeyRound className="w-5 h-5 text-emerald-700" />
+              Restablecer mi Contraseña
+            </h3>
+            <form onSubmit={handleConfirmarNuevoCambioClave} className="space-y-3">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Tu Usuario</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre de Usuario</label>
                 <input
                   type="text"
                   required
                   placeholder="Ej. marta"
                   value={usuarioRestablecerAlias}
                   onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-emerald-600 bg-white"
+                  autoFocus
                 />
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nueva Contraseña</label>
                 <input
-                  type="password"
+                  type="text"
                   required
-                  placeholder="••••"
+                  placeholder="Nueva clave..."
                   value={nuevaClaveInput}
                   onChange={(e) => setNuevaClaveInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl outline-none focus:ring-2 focus:ring-emerald-600 bg-white font-bold"
                 />
               </div>
-              <div className="flex items-center gap-2 pt-1">
-                <button
-                  type="button"
-                  onClick={() => setShowRestablecerClaveModal(false)}
-                  className="flex-1 py-2.5 rounded-xl bg-slate-100 text-slate-700 font-bold text-xs"
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setShowRestablecerClaveModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Actualizar Clave</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {solicitudIncobrableModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-amber-900 flex items-center gap-2">
+              <AlertTriangle className="w-5 h-5 text-amber-700" />
+              Solicitar Dar de Baja (Incobrable)
+            </h3>
+            <p className="text-xs text-slate-600">
+              Indica por qué esta deuda no se va a poder cobrar para que Tesorería la autorice:
+            </p>
+            <form onSubmit={handleEnviarSolicitudIncobrable}>
+              <textarea
+                rows={3}
+                required
+                placeholder="Ej. La persona se mudó y no tiene cómo pagar..."
+                value={motivoIncobrableInput}
+                onChange={(e) => setMotivoIncobrableInput(e.target.value)}
+                className="w-full px-3 py-2 border border-amber-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-amber-500 bg-amber-50/40"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSolicitudIncobrableModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-amber-600 hover:bg-amber-700 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {editingUser && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Modificar Usuario</h3>
+            <form onSubmit={handleGuardarEdicionUsuario} className="space-y-3">
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Nombre Completo</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.nombre}
+                  onChange={(e) => setEditingUser({ ...editingUser, nombre: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Usuario (Login)</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.usuario}
+                  onChange={(e) => setEditingUser({ ...editingUser, usuario: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  value={editingUser.clave}
+                  onChange={(e) => setEditingUser({ ...editingUser, clave: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white font-bold"
+                />
+              </div>
+              <div>
+                <label className="block text-[11px] font-bold text-slate-700 mb-1">Rol</label>
+                <select
+                  value={editingUser.rol}
+                  onChange={(e) => setEditingUser({ ...editingUser, rol: e.target.value })}
+                  className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl bg-white font-semibold"
                 >
-                  Cancelar
-                </button>
-                <button
-                  type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
-                >
-                  Actualizar Clave
-                </button>
+                  <option value="RECAUDADOR">Recaudador</option>
+                  <option value="TESORERO">Tesorero Central</option>
+                  <option value="ADMINISTRADOR">Administrador</option>
+                </select>
+              </div>
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingUser(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Guardar Cambios</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {eliminarUsuarioModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              ¿Eliminar usuario definitivamente?
+            </h3>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setEliminarUsuarioModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleConfirmarEliminarUsuario} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showBorrarTodoModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700">¿Borrar todo el contenido?</h3>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setShowBorrarTodoModal(false)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleBorrarTodo} className="flex-1 py-2.5 bg-rose-600 text-white rounded-xl text-xs font-bold shadow-xs">Sí, borrar todo</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {eliminarItemModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-rose-700 flex items-center gap-2">
+              <Trash2 className="w-5 h-5 text-rose-600" />
+              ¿Eliminar este registro del libro?
+            </h3>
+            <div className="flex gap-2 pt-2">
+              <button onClick={() => setEliminarItemModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+              <button onClick={handleEliminarRegistroLibro} className="flex-1 py-2.5 bg-rose-600 hover:bg-rose-700 text-white rounded-xl text-xs font-bold shadow-xs">Sí, eliminar</button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {editingTesoreroMov && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl my-8">
+            <div className="flex justify-between items-center border-b pb-3">
+              <h3 className="font-bold text-base text-slate-900 flex items-center gap-2">
+                <Edit3 className="w-5 h-5 text-indigo-700" />
+                Modificar Registro / Devolución ({editingTesoreroMov.id})
+              </h3>
+              <button onClick={() => setEditingTesoreroMov(null)} className="text-slate-400 hover:text-slate-600">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
+                const actualizados = movimientos.map((m) =>
+                  m.id === editingTesoreroMov.id
+                    ? {
+                        ...editingTesoreroMov,
+                        montoReportado: Number(editingTesoreroMov.montoReportado) || 0,
+                        montoRecibido: Number(editingTesoreroMov.montoRecibido) || 0,
+                        montoSalida: Number(editingTesoreroMov.montoSalida) || 0,
+                        montoSobranteDevuelto: Number(editingTesoreroMov.montoSobranteDevuelto) || 0,
+                        notaTesorero: `${editingTesoreroMov.notaTesorero || ''} [Corrección/Devolución por ${nombreTesoreroActual}: ${editingTesoreroMov.notaTesoreroDevolucion || 'Sin nota'}]`,
+                      }
+                    : m
+                );
+                setMovimientos(actualizados);
+                guardarEnNube(actualizados, usuariosSistema, configuracionApp);
+                setEditingTesoreroMov(null);
+                showToast('Registro modificado con éxito. Notificación enviada al recaudador.');
+              }}
+              className="space-y-4 text-xs"
+            >
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Monto Reportado ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoReportado}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoReportado: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl font-bold bg-white text-slate-900"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold text-slate-700 mb-1">Entrada Real en Caja ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoRecibido}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoRecibido: e.target.value })}
+                    className="w-full px-3 py-2 border rounded-xl font-bold bg-emerald-50 text-emerald-900"
+                  />
+                </div>
+              </div>
+
+              {editingTesoreroMov.tipo === 'EGRESO' && (
+                <div>
+                  <label className="block font-bold text-emerald-800 mb-1">Sobrante devuelto a caja ($)</label>
+                  <input
+                    type="number"
+                    value={editingTesoreroMov.montoSobranteDevuelto || ''}
+                    onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, montoSobranteDevuelto: e.target.value })}
+                    className="w-full px-3 py-2 border border-emerald-300 rounded-xl font-bold bg-emerald-50 text-emerald-900"
+                    placeholder="Ej. 10000"
+                  />
+                </div>
+              )}
+
+              <div>
+                <label className="block font-bold text-slate-700 mb-1">Motivo de la Devolución o Corrección (Aviso al Recaudador)</label>
+                <textarea
+                  rows={3}
+                  required
+                  placeholder="Ej. Se recibió un valor menor por error al contar el efectivo..."
+                  value={editingTesoreroMov.notaTesoreroDevolucion || ''}
+                  onChange={(e) => setEditingTesoreroMov({ ...editingTesoreroMov, notaTesoreroDevolucion: e.target.value })}
+                  className="w-full px-3 py-2 border border-indigo-200 rounded-xl bg-indigo-50/50 outline-none focus:ring-2 focus:ring-indigo-600"
+                />
+              </div>
+
+              <div className="flex gap-2 pt-2">
+                <button type="button" onClick={() => setEditingTesoreroMov(null)} className="flex-1 py-2.5 border rounded-xl font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-indigo-950 text-white rounded-xl font-bold shadow-xs">Guardar y Notificar</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {solicitudEdicionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Solicitar Permiso de Edición</h3>
+            <form onSubmit={handleEnviarSolicitudEdicion}>
+              <textarea
+                rows={3}
+                required
+                placeholder="Motivo..."
+                value={motivoSolicitudEdicion}
+                onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
+                className="w-full px-3 py-2 border border-slate-300 text-xs rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setSolicitudEdicionModal(null)} className="flex-1 py-2 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2 bg-indigo-950 text-white rounded-xl text-xs font-bold shadow-xs">Enviar Solicitud</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {abonoModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-md w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Registrar Abono de Deuda</h3>
+            <p className="text-xs text-slate-600">
+              Debe pendiente: <span className="text-rose-700 font-bold">{formatCOP(abonoModal.saldoPendiente)}</span>
+            </p>
+            <form onSubmit={handleConfirmarAbono}>
+              <input
+                type="number"
+                min="100"
+                max={abonoModal.saldoPendiente}
+                step="100"
+                required
+                value={valorAbonoInput}
+                onChange={(e) => setValorAbonoInput(e.target.value)}
+                className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl mb-4 outline-none focus:ring-2 focus:ring-indigo-600 text-center bg-white"
+                autoFocus
+              />
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setAbonoModal(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Guardar Abono</button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {arqueoItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl max-w-lg w-full p-6 space-y-4 shadow-xl">
+            <h3 className="font-bold text-base text-slate-900">Arqueo y Recepción de Efectivo</h3>
+            <form onSubmit={handleConfirmarArqueo}>
+              <div className="mb-3">
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Físico Contado ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="100"
+                  required
+                  value={montoFisicoContado}
+                  onChange={(e) => setMontoFisicoContado(e.target.value)}
+                  className="w-full px-4 py-3 border-2 border-indigo-200 text-lg font-extrabold rounded-xl outline-none focus:ring-2 focus:ring-indigo-600 text-center bg-white"
+                  autoFocus
+                />
+              </div>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setArqueoItem(null)} className="flex-1 py-2.5 border rounded-xl text-xs font-semibold">Cancelar</button>
+                <button type="submit" className="flex-1 py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold shadow-xs">Confirmar y Recibir</button>
               </div>
             </form>
           </div>
