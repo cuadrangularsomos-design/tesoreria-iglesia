@@ -96,6 +96,11 @@ const obtenerMesSiguiente = (mesStr) => {
   return `${anio}-${String(mes).padStart(2, '0')}`;
 };
 
+const limpiarTextoPagadasFiadas = (texto) => {
+  if (!texto) return '';
+  return String(texto).replace(/\s*\(\d+\s*pagadas,\s*\d+\s*fiadas\)/gi, '');
+};
+
 const calcularResumenInventario = (item) => {
   if (!item || item.modoRegistro !== 'UNIDADES') {
     return {
@@ -191,6 +196,14 @@ const CATEGORIAS_EGRESO_DEFAULT = [
   'Otro',
 ];
 
+const CATEGORIAS_INGRESO_DIRECTO_DEFAULT = [
+  'Ofrenda Directa',
+  'Diezmos / Primicias',
+  'Donación Externa',
+  'Transferencia Bancaria Directa',
+  'Otro Ingreso Directo',
+];
+
 export default function App() {
   const [movimientos, setMovimientos] = useState([]);
   const [cierresMensuales, setCierresMensuales] = useState([]);
@@ -204,6 +217,7 @@ export default function App() {
     umbralEgresoMayor: 200000,
     notasPastorales: [],
     categoriasEgreso: CATEGORIAS_EGRESO_DEFAULT,
+    categoriasIngresoDirecto: CATEGORIAS_INGRESO_DIRECTO_DEFAULT,
     fechaInicioVigencia: ''
   });
 
@@ -249,6 +263,9 @@ export default function App() {
               categoriasEgreso: Array.isArray(data.config.categoriasEgreso) && data.config.categoriasEgreso.length > 0
                 ? data.config.categoriasEgreso
                 : CATEGORIAS_EGRESO_DEFAULT,
+              categoriasIngresoDirecto: Array.isArray(data.config.categoriasIngresoDirecto) && data.config.categoriasIngresoDirecto.length > 0
+                ? data.config.categoriasIngresoDirecto
+                : CATEGORIAS_INGRESO_DIRECTO_DEFAULT,
               fechaInicioVigencia: data.config.fechaInicioVigencia || ''
             }));
             setAdminConfigTitulo(data.config.titulo || 'Tesorería & Recaudos Eclesiásticos');
@@ -364,6 +381,10 @@ export default function App() {
   const [editandoCategoriaIdx, setEditandoCategoriaIdx] = useState(null);
   const [editandoCategoriaValor, setEditandoCategoriaValor] = useState('');
 
+  const [nuevaCategoriaIngresoInput, setNuevaCategoriaIngresoInput] = useState('');
+  const [editandoCategoriaIngresoIdx, setEditandoCategoriaIngresoIdx] = useState(null);
+  const [editandoCategoriaIngresoValor, setEditandoCategoriaIngresoValor] = useState('');
+
   const [showSaldoInicialModal, setShowSaldoInicialModal] = useState(false);
   const [mesSaldoInicialModal, setMesSaldoInicialModal] = useState(() => new Date().toISOString().substring(0, 7));
   const [valorSaldoInicialModalInput, setValorSaldoInicialModalInput] = useState('0');
@@ -436,11 +457,26 @@ export default function App() {
   const [montoFisicoContado, setMontoFisicoContado] = useState('');
   const [notaArqueo, setNotaArqueo] = useState('');
 
+  // Estados para Ingreso Directo del Tesorero (sin recaudador)
+  const [ingDirFecha, setIngDirFecha] = useState(() => new Date().toISOString().split('T')[0]);
+  const [ingDirCategoria, setIngDirCategoria] = useState('Ofrenda Directa');
+  const [ingDirConcepto, setIngDirConcepto] = useState('');
+  const [ingDirAportante, setIngDirAportante] = useState('');
+  const [ingDirMonto, setIngDirMonto] = useState('');
+  const [ingDirMetodo, setIngDirMetodo] = useState('Efectivo Caja');
+  const [ingDirNota, setIngDirNota] = useState('');
+
   const categoriasDisponibles = useMemo(() => {
     return Array.isArray(configuracionApp.categoriasEgreso) && configuracionApp.categoriasEgreso.length > 0
       ? configuracionApp.categoriasEgreso
       : CATEGORIAS_EGRESO_DEFAULT;
   }, [configuracionApp.categoriasEgreso]);
+
+  const categoriasIngresoDirectoDisponibles = useMemo(() => {
+    return Array.isArray(configuracionApp.categoriasIngresoDirecto) && configuracionApp.categoriasIngresoDirecto.length > 0
+      ? configuracionApp.categoriasIngresoDirecto
+      : CATEGORIAS_INGRESO_DIRECTO_DEFAULT;
+  }, [configuracionApp.categoriasIngresoDirecto]);
 
   const [egrFecha, setEgrFecha] = useState(() => new Date().toISOString().split('T')[0]);
   const [egrCategoria, setEgrCategoria] = useState('Insumos Cocina');
@@ -455,6 +491,12 @@ export default function App() {
       setEgrCategoria(categoriasDisponibles[0]);
     }
   }, [categoriasDisponibles, egrCategoria]);
+
+  useEffect(() => {
+    if (categoriasIngresoDirectoDisponibles.length > 0 && !categoriasIngresoDirectoDisponibles.includes(ingDirCategoria)) {
+      setIngDirCategoria(categoriasIngresoDirectoDisponibles[0]);
+    }
+  }, [categoriasIngresoDirectoDisponibles, ingDirCategoria]);
 
   const [filtroLibro, setFiltroLibro] = useState('TODOS');
   const [busquedaLibro, setBusquedaLibro] = useState('');
@@ -738,7 +780,7 @@ export default function App() {
     setEditarLibroModal(item);
     setEditLibroFecha(item.fecha || '');
     setEditLibroActividad(item.actividad || '');
-    setEditLibroDescripcion(item.descripcion || '');
+    setEditLibroDescripcion(limpiarTextoPagadasFiadas(item.descripcion || ''));
     setEditLibroResponsable(item.responsable || '');
     if (item.tipo === 'INGRESO') {
       setEditLibroMonto(String(Number(item.montoRecibido) || Number(item.montoReportado) || 0));
@@ -776,7 +818,7 @@ export default function App() {
             ...m,
             fecha: editLibroFecha,
             actividad: editLibroActividad.trim(),
-            descripcion: editLibroDescripcion.trim(),
+            descripcion: limpiarTextoPagadasFiadas(editLibroDescripcion.trim()),
             responsable: editLibroResponsable.trim(),
             montoReportado: montoNum,
             montoRecibido: montoNum,
@@ -790,7 +832,7 @@ export default function App() {
             ...m,
             fecha: editLibroFecha,
             actividad: editLibroActividad.trim(),
-            descripcion: editLibroDescripcion.trim(),
+            descripcion: limpiarTextoPagadasFiadas(editLibroDescripcion.trim()),
             responsable: editLibroResponsable.trim(),
             montoSalida: montoNum,
             montoSobranteDevuelto: sobranteNum,
@@ -893,6 +935,67 @@ export default function App() {
     setConfiguracionApp(nuevaConf);
     guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
     showToast('Categoría eliminada de la lista.', 'warning');
+  };
+
+  const handleAgregarCategoriaIngresoDirecto = (e) => {
+    e.preventDefault();
+    const nombreCat = nuevaCategoriaIngresoInput.trim();
+    if (!nombreCat) {
+      showToast('Escribe el nombre de la categoría de ingreso.', 'error');
+      return;
+    }
+    const yaExiste = categoriasIngresoDirectoDisponibles.some((c) => c.toLowerCase() === nombreCat.toLowerCase());
+    if (yaExiste) {
+      showToast('Esa categoría de ingreso directo ya existe.', 'warning');
+      return;
+    }
+    const actualizadas = [...categoriasIngresoDirectoDisponibles, nombreCat];
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasIngresoDirecto: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    setNuevaCategoriaIngresoInput('');
+    showToast(`Categoría de ingreso "${nombreCat}" agregada correctamente.`);
+  };
+
+  const handleGuardarEdicionCategoriaIngresoDirecto = (idx) => {
+    const nuevoNombre = editandoCategoriaIngresoValor.trim();
+    if (!nuevoNombre) {
+      showToast('El nombre de la categoría no puede estar vacío.', 'error');
+      return;
+    }
+    const yaExiste = categoriasIngresoDirectoDisponibles.some((c, i) => i !== idx && c.toLowerCase() === nuevoNombre.toLowerCase());
+    if (yaExiste) {
+      showToast('Ya existe otra categoría de ingreso con ese nombre.', 'warning');
+      return;
+    }
+    const actualizadas = categoriasIngresoDirectoDisponibles.map((c, i) => (i === idx ? nuevoNombre : c));
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasIngresoDirecto: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    setEditandoCategoriaIngresoIdx(null);
+    setEditandoCategoriaIngresoValor('');
+    showToast('Categoría de ingreso directo actualizada.');
+  };
+
+  const handleEliminarCategoriaIngresoDirecto = (idx) => {
+    if (categoriasIngresoDirectoDisponibles.length <= 1) {
+      showToast('Debe existir al menos una categoría de ingreso directo.', 'error');
+      return;
+    }
+    const actualizadas = categoriasIngresoDirectoDisponibles.filter((_, i) => i !== idx);
+    const nuevaConf = {
+      ...configuracionApp,
+      categoriasIngresoDirecto: actualizadas
+    };
+    setConfiguracionApp(nuevaConf);
+    guardarEnNube(movimientos, usuariosSistema, nuevaConf, cierresMensuales);
+    showToast('Categoría de ingreso directo eliminada.', 'warning');
   };
 
   const handleCrearUsuarioSistema = (e) => {
@@ -1068,7 +1171,6 @@ export default function App() {
     showToast('¡Base de datos restaurada y sincronizada con éxito desde el respaldo JSON!');
   };
 
-  // --- PASTOR: CIERRE DE MES (AUDITORÍA DEL MES SIN REINICIAR ACUMULADOS A CERO) ---
   const handleEjecutarCierreDeMes = (e) => {
     e.preventDefault();
     const movsDelMes = (movimientos || []).filter((m) => m && m.fecha && m.fecha.startsWith(mesCierreInput));
@@ -1129,7 +1231,6 @@ export default function App() {
     );
   };
 
-  // --- PASTOR: CIERRE DE AÑO FISCAL (REINICIO DE ENTRADAS Y SALIDAS EN CERO AUTORIZADO) ---
   const handleEjecutarCierreAnualPastor = (e) => {
     e.preventDefault();
     const anioObjetivo = (anioCierreInput || '').trim();
@@ -1576,8 +1677,8 @@ export default function App() {
       const precio = Number(recPrecioUnitario) || 0;
       const valorRecaudadoEnMano = resumenFormUnidades.plataRecaudada;
       const descFinal =
-        (recDescripcion || '').trim() ||
-        `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u (${resumenFormUnidades.unidadesPagadas} pagadas, ${resumenFormUnidades.unidadesFiadas} fiadas)`;
+        limpiarTextoPagadasFiadas((recDescripcion || '').trim()) ||
+        `Producción de ${producidas} unidades a ${formatCOP(precio)} c/u`;
 
       if (editingRecaudoId) {
         const itemEdit = movimientos.find((m) => m && m.id === editingRecaudoId);
@@ -1666,7 +1767,7 @@ export default function App() {
               fecha: recFecha,
               modoRegistro: 'GENERAL',
               actividad: actividadFinal,
-              descripcion: recDescripcion.trim(),
+              descripcion: limpiarTextoPagadasFiadas(recDescripcion.trim()),
               responsable: nombreResponsable,
               metodoPago: recMetodo,
               montoReportado: valor,
@@ -1692,7 +1793,7 @@ export default function App() {
       tipo: 'INGRESO',
       modoRegistro: 'GENERAL',
       actividad: actividadFinal,
-      descripcion: recDescripcion.trim(),
+      descripcion: limpiarTextoPagadasFiadas(recDescripcion.trim()),
       responsable: nombreResponsable,
       metodoPago: recMetodo,
       montoReportado: valor,
@@ -1725,7 +1826,7 @@ export default function App() {
     setEditingRecaudoId(item.id);
     setRecFecha(item.fecha || new Date().toISOString().split('T')[0]);
     setRecActividadLibre(item.actividad || '');
-    setRecDescripcion(item.descripcion || '');
+    setRecDescripcion(limpiarTextoPagadasFiadas(item.descripcion || ''));
     setRecMetodo(item.metodoPago || 'Efectivo');
     if (item.modoRegistro === 'UNIDADES') {
       setModoRecaudo('UNIDADES');
@@ -1927,7 +2028,7 @@ export default function App() {
     let totalFiado = 0;
 
     (movimientos || []).forEach((m) => {
-      if (m && m.tipo === 'INGRESO' && m.responsable === nombreRec) {
+      if (m && m.tipo === 'INGRESO' && m.responsable === nombreRec && m.modoRegistro !== 'DIRECTO_TESORERIA') {
         const base = Number(m.montoReportado) || 0;
         const abonosExtras = Number(m.ultimoAbonoReportado) || 0;
         totalReportado += base + abonosExtras;
@@ -1945,7 +2046,6 @@ export default function App() {
     return { totalReportado, totalEnMano, totalFiado };
   }, [movimientos, usuarioLogueadoRecaudador]);
 
-  // --- CÁLCULO INTEGRADO DE CAJA (ACUMULADO CONTINUO / ANUAL / MENSUAL) ---
   const kpis = useMemo(() => {
     const saldosMap = configuracionApp.saldosInicialesPorMes || {};
     const anioActivo = (mesCajaActivo || new Date().toISOString().substring(0, 7)).substring(0, 4);
@@ -2329,6 +2429,56 @@ export default function App() {
     showToast('Ajuste de descuadre aprobado y cerrado.');
   };
 
+  // --- TESORERO: REGISTRAR INGRESO DIRECTO (INDEPENDIENTE DE RECAUDADORES) ---
+  const handleRegistrarIngresoDirectoTesorero = (e) => {
+    e.preventDefault();
+    if (esMesCerrado(ingDirFecha)) {
+      showToast('No se pueden registrar ingresos en un mes cerrado oficialmente por el Pastor.', 'error');
+      return;
+    }
+
+    const valorIngreso = Number(ingDirMonto.toString().replace(/\D/g, ''));
+    if (!ingDirConcepto.trim() || valorIngreso <= 0) {
+      showToast('Completa el concepto y un monto válido mayor a $0.', 'error');
+      return;
+    }
+
+    const nombreTesoreroActual = usuarioLogueadoTesorero ? usuarioLogueadoTesorero.nombre : 'Tesorero';
+    const aportanteFinal = ingDirAportante.trim() ? ingDirAportante.trim() : 'Ingreso Directo en Caja';
+    const descFinal = `Ingreso directo [${ingDirCategoria}]: ${ingDirConcepto.trim()}${
+      ingDirAportante.trim() ? ` • Origen/Aportante: ${ingDirAportante.trim()}` : ''
+    }`;
+
+    const nuevoIngresoDirecto = {
+      id: `ING-${Math.floor(100 + Math.random() * 900)}`,
+      fecha: ingDirFecha,
+      tipo: 'INGRESO',
+      modoRegistro: 'DIRECTO_TESORERIA',
+      actividad: ingDirCategoria,
+      descripcion: descFinal,
+      responsable: `${aportanteFinal} (Registra: ${nombreTesoreroActual})`,
+      metodoPago: ingDirMetodo,
+      montoReportado: valorIngreso,
+      montoRecibido: valorIngreso,
+      montoSalida: 0,
+      estado: 'VERIFICADO',
+      notaTesorero:
+        `Ingreso directo registrado en caja por ${nombreTesoreroActual} (${ingDirMetodo})` +
+        (ingDirNota.trim() ? ` | Nota: ${ingDirNota.trim()}` : ''),
+      ultimoAbonoReportado: 0
+    };
+
+    const actualizados = [nuevoIngresoDirecto, ...(movimientos || [])];
+    setMovimientos(actualizados);
+    guardarEnNube(actualizados, usuariosSistema, configuracionApp, cierresMensuales);
+    setIngDirConcepto('');
+    setIngDirAportante('');
+    setIngDirMonto('');
+    setIngDirNota('');
+    showToast(`Ingreso directo por ${formatCOP(valorIngreso)} registrado y sumado a caja.`);
+    setTesoreroTab('LIBRO');
+  };
+
   const handleRegistrarEgreso = (e) => {
     e.preventDefault();
     if (esMesCerrado(egrFecha)) {
@@ -2395,7 +2545,7 @@ export default function App() {
       'ID', 'Fecha', 'Tipo', 'Actividad', 'Descripción', 'Responsable', 'Reportado', 'Entrada Real', 'Salida Neta', 'Sobrante Devuelto', 'Estado', 'Visto Bueno Pastoral', 'Nota'
     ];
     const rows = (movimientos || []).map((m) => [
-      m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${m.descripcion}"`, `"${m.responsable}"`,
+      m.id, m.fecha, m.tipo, `"${m.actividad}"`, `"${limpiarTextoPagadasFiadas(m.descripcion)}"`, `"${m.responsable}"`,
       m.montoReportado, m.montoRecibido, m.montoSalida, m.montoSobranteDevuelto || 0, m.estado, m.vistoBuenoPastoral || 'N/A', `"${m.notaTesorero || ''}"`
     ]);
     const csvContent = '\uFEFF' + [headers.join(';'), ...rows.map((e) => e.join(';'))].join('\n');
@@ -2416,6 +2566,7 @@ export default function App() {
         if (!m) return false;
         if (filtroLibro === 'TODOS') return true;
         if (filtroLibro === 'INGRESOS') return m.tipo === 'INGRESO';
+        if (filtroLibro === 'INGRESOS_DIRECTOS') return m.tipo === 'INGRESO' && m.modoRegistro === 'DIRECTO_TESORERIA';
         if (filtroLibro === 'EGRESOS') return m.tipo === 'EGRESO';
         return m.estado === filtroLibro;
       })
@@ -2425,7 +2576,7 @@ export default function App() {
         const q = busquedaLibro.toLowerCase();
         return (
           (m.actividad || '').toLowerCase().includes(q) ||
-          (m.descripcion || '').toLowerCase().includes(q) ||
+          limpiarTextoPagadasFiadas(m.descripcion || '').toLowerCase().includes(q) ||
           (m.responsable || '').toLowerCase().includes(q) ||
           (m.id || '').toLowerCase().includes(q)
         );
@@ -2443,6 +2594,12 @@ export default function App() {
           <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded text-[10px] font-bold bg-slate-200 text-slate-800 border border-slate-300">
             <Lock className="w-3 h-3 text-slate-600" />
             Mes Cerrado
+          </span>
+        )}
+        {m.modoRegistro === 'DIRECTO_TESORERIA' && (
+          <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-bold bg-sky-100 text-sky-900 border border-sky-300">
+            <Banknote className="w-3 h-3 text-sky-700" />
+            Directo Tesorería
           </span>
         )}
         {m.vistoBuenoPastoral === 'PENDIENTE' && (
@@ -3066,18 +3223,18 @@ export default function App() {
                           <p className="text-xs text-slate-500">Supervisa tus unidades, abonos y deudores en tiempo real.</p>
                         </div>
                         <span className="px-3 py-1 rounded-full bg-indigo-50 text-indigo-900 text-xs font-bold">
-                          {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length} actividades
+                          {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre && m.modoRegistro !== 'DIRECTO_TESORERIA').length} actividades
                         </span>
                       </div>
 
                       <div className="space-y-4">
-                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre).length === 0 ? (
+                        {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre && m.modoRegistro !== 'DIRECTO_TESORERIA').length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
                             <p className="text-sm font-semibold text-slate-600">No hay recaudos registrados todavía por ti.</p>
                           </div>
                         ) : (
                           (movimientos || [])
-                            .filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre)
+                            .filter((m) => m && m.tipo === 'INGRESO' && m.responsable === usuarioLogueadoRecaudador.nombre && m.modoRegistro !== 'DIRECTO_TESORERIA')
                             .map((item) => {
                               if (!item) return null;
                               const inv = calcularResumenInventario(item);
@@ -3098,18 +3255,16 @@ export default function App() {
                                         <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                       </div>
-                                      <p className="text-xs text-slate-600 mt-1 font-medium">{item.descripcion}</p>
-                                      {dineroRecogidoEnManoActual > 0 && (
-                                        <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-emerald-100 border border-emerald-300 text-emerald-950 text-xs font-extrabold">
-                                          <Banknote className="w-3.5 h-3.5 text-emerald-700" />
-                                          <span>Recogido en mano hasta ahora (por entregar): {formatCOP(dineroRecogidoEnManoActual)}</span>
-                                        </div>
-                                      )}
+                                      <p className="text-xs text-slate-600 mt-1 font-medium">{limpiarTextoPagadasFiadas(item.descripcion)}</p>
                                       {yaEntregadoTesoreria > 0 && (
                                         <span className="block text-[11px] text-slate-500 font-semibold mt-1">
                                           Ya entregado a Tesorería: {formatCOP(yaEntregadoTesoreria)}
                                         </span>
                                       )}
+                                      <div className="mt-2 inline-flex items-center gap-2 px-3 py-1.5 rounded-xl bg-emerald-50 border border-emerald-200 text-emerald-950 text-xs font-extrabold">
+                                        <Banknote className="w-4 h-4 text-emerald-700 shrink-0" />
+                                        <span>Recogido en mano hasta ahora (por entregar): {formatCOP(dineroRecogidoEnManoActual)}</span>
+                                      </div>
                                     </div>
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
@@ -3540,6 +3695,16 @@ export default function App() {
                   </button>
 
                   <button
+                    onClick={() => setTesoreroTab('INGRESOS_DIRECTOS')}
+                    className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
+                      tesoreroTab === 'INGRESOS_DIRECTOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
+                    }`}
+                  >
+                    <PlusCircle className="w-4 h-4 text-emerald-400" />
+                    <span>Registrar Ingreso Directo</span>
+                  </button>
+
+                  <button
                     onClick={() => setTesoreroTab('CARTERA_DESCUADRES')}
                     className={`px-4 py-2.5 rounded-xl text-sm font-bold transition-all flex items-center gap-2 ${
                       tesoreroTab === 'CARTERA_DESCUADRES' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
@@ -3574,6 +3739,131 @@ export default function App() {
                     <span>Libro Único Completo ({(movimientos || []).length})</span>
                   </button>
                 </div>
+
+                {/* PESTAÑA INGRESO DIRECTO DEL TESORERO (SIN RECAUDADOR) */}
+                {tesoreroTab === 'INGRESOS_DIRECTOS' && (
+                  <div className="max-w-2xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+                    <div className="flex items-center gap-3 mb-6 border-b border-slate-100 pb-4">
+                      <div className="p-3 bg-emerald-50 text-emerald-700 rounded-xl">
+                        <PlusCircle className="w-6 h-6" />
+                      </div>
+                      <div>
+                        <h3 className="text-base font-bold text-slate-900">Registrar Ingreso Directo en Tesorería</h3>
+                        <p className="text-xs text-slate-500">
+                          Registra entradas de dinero que ingresan directamente a caja sin pasar por un recaudador (ofrendas directas, donaciones, transferencias o aportes externos).
+                        </p>
+                      </div>
+                    </div>
+
+                    {esMesCerrado(ingDirFecha) && (
+                      <div className="mb-4 bg-rose-50 border border-rose-200 p-3 rounded-xl text-xs text-rose-800 font-bold flex items-center gap-2">
+                        <Lock className="w-4 h-4 text-rose-600 shrink-0" />
+                        <span>Este mes ya está cerrado oficialmente por el Pastor. No se pueden registrar ingresos aquí.</span>
+                      </div>
+                    )}
+
+                    <form onSubmit={handleRegistrarIngresoDirectoTesorero} className="space-y-4">
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha del Ingreso</label>
+                          <input
+                            type="date"
+                            required
+                            value={ingDirFecha}
+                            onChange={(e) => setIngDirFecha(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Categoría de Ingreso Directo</label>
+                          <select
+                            value={ingDirCategoria}
+                            onChange={(e) => setIngDirCategoria(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                          >
+                            {categoriasIngresoDirectoDisponibles.map((cat) => (
+                              <option key={cat} value={cat}>{cat}</option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Concepto / Descripción del Ingreso</label>
+                        <input
+                          type="text"
+                          required
+                          placeholder="Ej. Ofrenda culto dominical, Donación para obra, Transferencia directa..."
+                          value={ingDirConcepto}
+                          onChange={(e) => setIngDirConcepto(e.target.value)}
+                          className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                        />
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Aportante / Origen (Opcional)</label>
+                          <input
+                            type="text"
+                            placeholder="Ej. Anónimo, Familia Pérez, Cuenta Iglesia..."
+                            value={ingDirAportante}
+                            onChange={(e) => setIngDirAportante(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor Ingresado ($)</label>
+                          <input
+                            type="number"
+                            min="100"
+                            step="100"
+                            required
+                            placeholder="Ej. 250000"
+                            value={ingDirMonto}
+                            onChange={(e) => setIngDirMonto(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold text-emerald-900 bg-emerald-50/40"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Medio de Ingreso</label>
+                          <select
+                            value={ingDirMetodo}
+                            onChange={(e) => setIngDirMetodo(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-medium"
+                          >
+                            <option value="Efectivo Caja">Efectivo Caja</option>
+                            <option value="Transferencia / Nequi">Transferencia / Nequi</option>
+                            <option value="Consignación Bancaria">Consignación Bancaria</option>
+                          </select>
+                        </div>
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Observaciones / Comprobante</label>
+                          <input
+                            type="text"
+                            placeholder="Número de comprobante o nota..."
+                            value={ingDirNota}
+                            onChange={(e) => setIngDirNota(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
+                      </div>
+
+                      <button
+                        type="submit"
+                        disabled={esMesCerrado(ingDirFecha)}
+                        className={`w-full py-3.5 rounded-xl text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2 mt-4 ${
+                          esMesCerrado(ingDirFecha) ? 'bg-slate-400 cursor-not-allowed' : 'bg-emerald-600 hover:bg-emerald-700'
+                        }`}
+                      >
+                        <PlusCircle className="w-4 h-4" />
+                        Registrar Ingreso Directo en Caja
+                      </button>
+                    </form>
+                  </div>
+                )}
 
                 {tesoreroTab === 'CARTERA_DESCUADRES' && (
                   <div className="space-y-6">
@@ -3757,7 +4047,7 @@ export default function App() {
                       <div className="space-y-4">
                         {(movimientos || []).filter((m) => m && m.tipo === 'INGRESO').length === 0 ? (
                           <div className="text-center py-12 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                            <p className="text-sm font-semibold text-slate-600">No hay recaudos enviados por los recaudadores todavía.</p>
+                            <p className="text-sm font-semibold text-slate-600">No hay ingresos ni recaudos registrados todavía.</p>
                           </div>
                         ) : (
                           (movimientos || [])
@@ -3779,10 +4069,10 @@ export default function App() {
                                         <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                         <span className="text-xs text-slate-400">• {item.fecha}</span>
                                         <span className="text-xs font-semibold text-indigo-900 bg-indigo-50 px-2 py-0.5 rounded-full border border-indigo-100">
-                                          Recaudador: {item.responsable}
+                                          {item.modoRegistro === 'DIRECTO_TESORERIA' ? `Origen: ${item.responsable}` : `Recaudador: ${item.responsable}`}
                                         </span>
                                       </div>
-                                      <p className="text-xs text-slate-600 mt-1">{item.descripcion}</p>
+                                      <p className="text-xs text-slate-600 mt-1">{limpiarTextoPagadasFiadas(item.descripcion)}</p>
                                     </div>
 
                                     <div className="flex sm:flex-col items-end justify-between gap-2 shrink-0">
@@ -4039,7 +4329,8 @@ export default function App() {
                           className="px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white font-semibold"
                         >
                           <option value="TODOS">Todos los movimientos</option>
-                          <option value="INGRESOS">Solo Ingresos</option>
+                          <option value="INGRESOS">Todos los Ingresos</option>
+                          <option value="INGRESOS_DIRECTOS">Solo Ingresos Directos</option>
                           <option value="EGRESOS">Solo Egresos</option>
                           <option value="VERIFICADO">Verificados</option>
                           <option value="PENDIENTE">Pendientes</option>
@@ -4086,8 +4377,8 @@ export default function App() {
                                     </span>
                                     <span className="block font-bold text-slate-800">{m.actividad}</span>
                                   </td>
-                                  <td className="p-3 text-slate-600 max-w-xs truncate" title={m.descripcion}>
-                                    {m.descripcion}
+                                  <td className="p-3 text-slate-600 max-w-xs truncate" title={limpiarTextoPagadasFiadas(m.descripcion)}>
+                                    {limpiarTextoPagadasFiadas(m.descripcion)}
                                     {m.montoSobranteDevuelto > 0 && (
                                       <span className="block text-[10px] text-emerald-700 font-bold">
                                         Devuelto a caja: {formatCOP(m.montoSobranteDevuelto)}
@@ -4197,7 +4488,7 @@ export default function App() {
           </>
         )}
 
-        {/* ================= ROL 3: PASTOR (AUDITORÍA, CIERRES, VISTO BUENO, NOTAS PASTORALES) ================= */}
+        {/* ================= ROL 3: PASTOR ================= */}
         {activeRole === 'PASTOR' && (
           <>
             {!usuarioLogueadoPastor ? (
@@ -4338,7 +4629,6 @@ export default function App() {
                 {pastorTab === 'AUDITORIA' && (
                   <div className="space-y-6">
                     <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-                      {/* TARJETA 1: CIERRE MENSUAL (BLOQUEA EDICIONES DEL MES, MANTIENE ACUMULADOS INTACTOS) */}
                       <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between">
                         <div className="space-y-4 text-center">
                           <div className="w-14 h-14 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -4373,7 +4663,6 @@ export default function App() {
                         </form>
                       </div>
 
-                      {/* TARJETA 2: CIERRE ANUAL AUTORIZADO POR EL PASTOR (REINICIA ENTRADAS Y SALIDAS A CERO) */}
                       <div className="bg-white rounded-2xl shadow-sm border-2 border-indigo-900/20 p-6 flex flex-col justify-between">
                         <div className="space-y-4 text-center">
                           <div className="w-14 h-14 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
@@ -4656,7 +4945,7 @@ export default function App() {
                                     <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                     <span className="text-xs text-slate-500">• {item.fecha}</span>
                                   </div>
-                                  <p className="text-xs text-slate-700 mt-1">{item.descripcion}</p>
+                                  <p className="text-xs text-slate-700 mt-1">{limpiarTextoPagadasFiadas(item.descripcion)}</p>
                                   <p className="text-xs text-indigo-950 bg-white p-2 rounded-lg border border-indigo-200 mt-2">
                                     <strong>Motivo de corrección por Tesorería:</strong> "{item.motivoEdicionLibro}"
                                   </p>
@@ -4704,7 +4993,7 @@ export default function App() {
                                     <span className="font-bold text-slate-900 text-sm">{item.actividad}</span>
                                     <span className="text-xs text-slate-500">• {item.fecha}</span>
                                   </div>
-                                  <p className="text-xs text-slate-700 mt-1">{item.descripcion}</p>
+                                  <p className="text-xs text-slate-700 mt-1">{limpiarTextoPagadasFiadas(item.descripcion)}</p>
                                   <p className="text-xs text-amber-900 bg-white p-2 rounded-lg border border-amber-200 mt-2">
                                     <strong>Motivo de solicitud por Tesorería:</strong> "{item.motivoBorrado}"
                                   </p>
@@ -4736,75 +5025,82 @@ export default function App() {
 
                 {pastorTab === 'NOTAS' && (
                   <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="text-base font-bold text-slate-900 mb-1">Publicar Nota Pastoral para Tesorería</h3>
-                      <p className="text-xs text-slate-500 mb-4">Estas directrices u observaciones aparecerán destacadas en el tablero de Tesorería.</p>
+                    <div className="lg:col-span-5">
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                        <h3 className="text-base font-bold text-slate-900 mb-1">Publicar Nota o Directriz Pastoral</h3>
+                        <p className="text-xs text-slate-500 mb-4">Este mensaje aparecerá destacado en el panel principal de Tesorería.</p>
 
-                      <form onSubmit={handleAgregarNotaPastoral} className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Prioridad</label>
-                          <select
-                            value={nuevaNotaPastoralPrioridad}
-                            onChange={(e) => setNuevaNotaPastoralPrioridad(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                        <form onSubmit={handleAgregarNotaPastoral} className="space-y-4">
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nivel de Prioridad</label>
+                            <select
+                              value={nuevaNotaPastoralPrioridad}
+                              onChange={(e) => setNuevaNotaPastoralPrioridad(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                            >
+                              <option value="INFORMATIVA">Informativa / Recomendación</option>
+                              <option value="URGENTE">Urgente / Prioritaria</option>
+                            </select>
+                          </div>
+
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contenido de la Nota</label>
+                            <textarea
+                              rows="4"
+                              required
+                              placeholder="Ej. Priorizar fondo de ayuda social este mes, o preparar informe para junta..."
+                              value={nuevaNotaPastoralTexto}
+                              onChange={(e) => setNuevaNotaPastoralTexto(e.target.value)}
+                              className="w-full p-3 rounded-xl border border-slate-300 text-sm bg-white"
+                            ></textarea>
+                          </div>
+
+                          <button
+                            type="submit"
+                            className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
                           >
-                            <option value="INFORMATIVA">Informativa / Directriz</option>
-                            <option value="URGENTE">Urgente / Prioritaria</option>
-                          </select>
-                        </div>
-
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contenido de la Nota</label>
-                          <textarea
-                            rows="4"
-                            required
-                            placeholder="Ej. Reservar el 20% de los recaudos de este mes para el fondo de misiones..."
-                            value={nuevaNotaPastoralTexto}
-                            onChange={(e) => setNuevaNotaPastoralTexto(e.target.value)}
-                            className="w-full p-3.5 rounded-xl border border-slate-300 text-sm bg-white"
-                          ></textarea>
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
-                        >
-                          Publicar Nota Pastoral
-                        </button>
-                      </form>
+                            Publicar Nota Pastoral
+                          </button>
+                        </form>
+                      </div>
                     </div>
 
-                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-3">
-                      <h3 className="text-base font-bold text-slate-900">Notas Pastorales Publicadas</h3>
-                      {(configuracionApp.notasPastorales || []).length === 0 ? (
-                        <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
-                          <p className="text-sm text-slate-500 font-semibold">No hay notas pastorales publicadas actualmente.</p>
-                        </div>
-                      ) : (
-                        (configuracionApp.notasPastorales || []).map((nota) => (
-                          <div key={nota.id} className="p-4 rounded-xl border border-amber-200 bg-amber-50/50 flex items-start justify-between gap-3">
-                            <div>
-                              <div className="flex items-center gap-2 mb-1">
-                                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
-                                  nota.prioridad === 'URGENTE' ? 'bg-rose-100 text-rose-800' : 'bg-amber-200 text-amber-950'
-                                }`}>
-                                  {nota.prioridad}
-                                </span>
-                                <span className="text-xs text-slate-500">{nota.fecha} • Por: <strong>{nota.autor}</strong></span>
-                              </div>
-                              <p className="text-sm text-slate-800 font-medium">{nota.contenido}</p>
-                            </div>
-                            <button
-                              type="button"
-                              onClick={() => handleEliminarNotaPastoral(nota.id)}
-                              className="text-slate-400 hover:text-rose-600 p-1 shrink-0"
-                              title="Eliminar nota"
-                            >
-                              <Trash2 className="w-4 h-4" />
-                            </button>
+                    <div className="lg:col-span-7">
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 space-y-4">
+                        <h3 className="text-base font-bold text-slate-900">Notas Pastorales Publicadas</h3>
+
+                        {(configuracionApp.notasPastorales || []).length === 0 ? (
+                          <div className="text-center py-10 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                            <p className="text-sm text-slate-500 font-semibold">No hay notas pastorales activas en este momento.</p>
                           </div>
-                        ))
-                      )}
+                        ) : (
+                          <div className="space-y-3">
+                            {(configuracionApp.notasPastorales || []).map((nota) => (
+                              <div key={nota.id} className="p-4 rounded-xl bg-amber-50/60 border border-amber-200 flex items-start justify-between gap-3">
+                                <div className="space-y-1">
+                                  <div className="flex items-center gap-2">
+                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                                      nota.prioridad === 'URGENTE' ? 'bg-rose-100 text-rose-800' : 'bg-amber-200 text-amber-950'
+                                    }`}>
+                                      {nota.prioridad}
+                                    </span>
+                                    <span className="text-xs text-slate-500">{nota.fecha} • {nota.autor}</span>
+                                  </div>
+                                  <p className="text-sm text-slate-800 font-medium">{nota.contenido}</p>
+                                </div>
+                                <button
+                                  type="button"
+                                  onClick={() => handleEliminarNotaPastoral(nota.id)}
+                                  className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                  title="Eliminar nota"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
                     </div>
                   </div>
                 )}
@@ -4813,7 +5109,7 @@ export default function App() {
           </>
         )}
 
-        {/* ================= ROL 4: ADMINISTRADOR (CONFIGURACIÓN, USUARIOS Y RESPALDO JSON) ================= */}
+        {/* ================= ROL 4: ADMINISTRADOR ================= */}
         {activeRole === 'ADMINISTRADOR' && (
           <>
             {!usuarioLogueadoAdmin ? (
@@ -4821,9 +5117,9 @@ export default function App() {
                 <div className="w-14 h-14 bg-sky-100 text-sky-900 rounded-2xl flex items-center justify-center mx-auto mb-4 shadow-inner">
                   <Settings className="w-8 h-8" />
                 </div>
-                <h2 className="text-xl font-bold text-slate-900">Panel Exclusivo Administrador</h2>
+                <h2 className="text-xl font-bold text-slate-900">Administración del Sistema</h2>
                 <p className="text-sm text-slate-500 mt-1">
-                  Gestión de configuración general, creación/edición directa de usuarios y respaldo/restauración JSON.
+                  Acceso técnico exclusivo para gestión de usuarios, credenciales, parámetros y respaldos.
                 </p>
 
                 <form onSubmit={handleAdminLogin} className="mt-6 space-y-4 text-left">
@@ -4858,17 +5154,17 @@ export default function App() {
                     type="submit"
                     className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-2"
                   >
-                    Entrar como Administrador
+                    Ingresar como Administrador
                   </button>
                 </form>
               </div>
             ) : (
               <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-indigo-950 text-white p-4 rounded-2xl border border-indigo-900 shadow-md">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-slate-900 text-white p-4 rounded-2xl border border-slate-800 shadow-md">
                   <div className="flex items-center gap-2.5">
                     <span className="w-3 h-3 rounded-full bg-sky-400 animate-ping"></span>
                     <span className="text-sm font-bold">
-                      Sesión Administrador Activa: <span className="text-sky-300 underline">{usuarioLogueadoAdmin.nombre}</span>
+                      Administrador Técnico Activo: <span className="text-sky-300 underline">{usuarioLogueadoAdmin.nombre}</span>
                     </span>
                   </div>
                   <button
@@ -4887,8 +5183,8 @@ export default function App() {
                       adminTab === 'CONFIG' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    <Settings className="w-4 h-4 text-emerald-400" />
-                    <span>Configuración General & Saldo Base</span>
+                    <Edit3 className="w-4 h-4 text-sky-400" />
+                    <span>Configuración General y Categorías</span>
                   </button>
 
                   <button
@@ -4897,10 +5193,10 @@ export default function App() {
                       adminTab === 'USUARIOS' ? 'bg-indigo-950 text-white shadow-xs' : 'bg-white text-slate-600 border hover:bg-slate-50'
                     }`}
                   >
-                    <Users className="w-4 h-4 text-sky-400" />
-                    <span>Gestión Directa de Usuarios</span>
+                    <UserCog className="w-4 h-4 text-emerald-400" />
+                    <span>Gestión de Usuarios ({(usuariosSistema || []).length})</span>
                     {alertasAdmin > 0 && (
-                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold">
+                      <span className="px-1.5 py-0.5 text-xs rounded-full bg-amber-400 text-indigo-950 font-extrabold animate-pulse">
                         {alertasAdmin}
                       </span>
                     )}
@@ -4913,237 +5209,302 @@ export default function App() {
                     }`}
                   >
                     <Database className="w-4 h-4 text-amber-400" />
-                    <span>Respaldo / Restauración JSON</span>
+                    <span>Respaldo y Restauración JSON</span>
                   </button>
                 </div>
 
                 {adminTab === 'CONFIG' && (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-                      <div className="space-y-6">
-                        <div className="text-center">
-                          <div className="w-16 h-16 bg-indigo-100 text-indigo-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner mb-3">
-                            <Settings className="w-8 h-8" />
-                          </div>
-                          <h3 className="text-xl font-bold text-slate-900">Configuración General del Sistema</h3>
-                          <p className="text-sm text-slate-500 mt-1">
-                            Administra la identidad institucional, el saldo inicial base del sistema y el umbral de egresos mayores.
-                          </p>
-                        </div>
+                  <div className="max-w-3xl mx-auto space-y-6">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
+                      <h3 className="text-base font-bold text-slate-900 mb-1">Personalización y Parámetros Financieros</h3>
+                      <p className="text-xs text-slate-500 mb-6">Configura los datos de la iglesia, saldo inicial y el umbral para egresos mayores.</p>
 
-                        <form onSubmit={handleGuardarConfiguracionApp} className="space-y-4 pt-2">
+                      <form onSubmit={handleGuardarConfiguracionApp} className="space-y-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Oficial de la Iglesia (Para las Actas)</label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Oficial de la Iglesia (Para Actas)</label>
                             <input
                               type="text"
                               required
                               value={adminConfigIglesia}
                               onChange={(e) => setAdminConfigIglesia(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Título de la Plataforma / Header</label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Título Principal del Sistema</label>
                             <input
                               type="text"
                               required
                               value={adminConfigTitulo}
                               onChange={(e) => setAdminConfigTitulo(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
                             />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Subtítulo o Lema</label>
-                            <input
-                              type="text"
-                              required
-                              value={adminConfigSubtitulo}
-                              onChange={(e) => setAdminConfigSubtitulo(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-                          <div>
-                            <label className="block text-xs font-bold uppercase text-slate-700 mb-1">URL del Logo (Opcional)</label>
-                            <input
-                              type="url"
-                              placeholder="https://ejemplo.com/logo-iglesia.png"
-                              value={adminConfigLogoUrl}
-                              onChange={(e) => setAdminConfigLogoUrl(e.target.value)}
-                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                            />
-                          </div>
-
-                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4 pt-2 border-t border-slate-100">
-                            <div>
-                              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Saldo Inicial Global ($)</label>
-                              <input
-                                type="number"
-                                step="100"
-                                value={adminConfigSaldoInicialGlobal}
-                                onChange={(e) => setAdminConfigSaldoInicialGlobal(e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-indigo-950 bg-indigo-50/40"
-                              />
-                              <span className="text-[10px] text-slate-500 mt-1 block">Saldo base con el que arranca el sistema.</span>
-                            </div>
-                            <div>
-                              <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Umbral Egreso Mayor ($)</label>
-                              <input
-                                type="number"
-                                min="0"
-                                step="1000"
-                                value={adminConfigUmbralEgreso}
-                                onChange={(e) => setAdminConfigUmbralEgreso(e.target.value)}
-                                className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-extrabold text-amber-950 bg-amber-50/40"
-                              />
-                              <span className="text-[10px] text-slate-500 mt-1 block">Egresos desde este monto piden Visto Bueno Pastoral.</span>
-                            </div>
-                          </div>
-
-                          <button
-                            type="submit"
-                            className="w-full py-3.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all mt-4"
-                          >
-                            Guardar Configuración General
-                          </button>
-                        </form>
-                      </div>
-                    </div>
-
-                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between space-y-4">
-                      <div className="space-y-4">
-                        <div className="flex items-center gap-3 border-b border-slate-100 pb-3">
-                          <div className="p-2.5 bg-rose-50 text-rose-700 rounded-xl">
-                            <Tags className="w-6 h-6" />
-                          </div>
-                          <div>
-                            <h3 className="text-base font-bold text-slate-900">Categorías de Egresos</h3>
-                            <p className="text-xs text-slate-500">Agrega, modifica o elimina las categorías que usa Tesorería.</p>
                           </div>
                         </div>
 
-                        <form onSubmit={handleAgregarCategoriaEgreso} className="flex items-center gap-2">
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Subtítulo / Lema Institucional</label>
                           <input
                             type="text"
-                            placeholder="Nueva categoría (Ej. Transporte, Impuestos)..."
-                            value={nuevaCategoriaInput}
-                            onChange={(e) => setNuevaCategoriaInput(e.target.value)}
-                            className="flex-1 px-3.5 py-2 rounded-xl border border-slate-300 text-xs bg-white font-medium"
+                            required
+                            value={adminConfigSubtitulo}
+                            onChange={(e) => setAdminConfigSubtitulo(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                           />
-                          <button
-                            type="submit"
-                            className="px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs shrink-0"
-                          >
-                            + Agregar
-                          </button>
-                        </form>
+                        </div>
 
-                        <div className="space-y-2 max-h-96 overflow-y-auto pr-1">
-                          {categoriasDisponibles.map((cat, idx) => (
-                            <div
-                              key={`${cat}-${idx}`}
-                              className="p-2.5 rounded-xl border border-slate-200 bg-slate-50/70 flex items-center justify-between gap-2 text-xs"
-                            >
-                              {editandoCategoriaIdx === idx ? (
-                                <div className="flex items-center gap-1.5 flex-1">
-                                  <input
-                                    type="text"
-                                    value={editandoCategoriaValor}
-                                    onChange={(e) => setEditandoCategoriaValor(e.target.value)}
-                                    className="flex-1 px-2.5 py-1 rounded-lg border border-indigo-300 bg-white font-bold text-slate-800"
-                                    autoFocus
-                                  />
-                                  <button
-                                    type="button"
-                                    onClick={() => handleGuardarEdicionCategoria(idx)}
-                                    className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white font-bold text-[11px]"
-                                  >
-                                    Guardar
-                                  </button>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Saldo Inicial Global de Caja ($)</label>
+                            <input
+                              type="number"
+                              required
+                              value={adminConfigSaldoInicialGlobal}
+                              onChange={(e) => setAdminConfigSaldoInicialGlobal(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-extrabold text-indigo-950"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Umbral Egreso Mayor (Visto Bueno Pastoral $)</label>
+                            <input
+                              type="number"
+                              min="0"
+                              step="1000"
+                              required
+                              value={adminConfigUmbralEgreso}
+                              onChange={(e) => setAdminConfigUmbralEgreso(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-extrabold text-amber-900"
+                            />
+                          </div>
+                        </div>
+
+                        <div>
+                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Enlace URL del Logo (Opcional)</label>
+                          <input
+                            type="url"
+                            placeholder="https://ejemplo.com/mi-logo.png"
+                            value={adminConfigLogoUrl}
+                            onChange={(e) => setAdminConfigLogoUrl(e.target.value)}
+                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                          />
+                        </div>
+
+                        <button
+                          type="submit"
+                          className="w-full py-3.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md mt-4"
+                        >
+                          Guardar Configuración General
+                        </button>
+                      </form>
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-5">
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                        <div className="p-2.5 bg-indigo-50 text-indigo-900 rounded-xl">
+                          <Tags className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900">Categorías de Gastos / Egresos (Tesorería)</h3>
+                          <p className="text-xs text-slate-500">Agrega, modifica o elimina las categorías que aparecen en el formulario de salidas de Tesorería.</p>
+                        </div>
+                      </div>
+
+                      <form onSubmit={handleAgregarCategoriaEgreso} className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Nueva categoría de gasto (Ej. Diezmo Nacional, Eventos Juveniles...)"
+                          value={nuevaCategoriaInput}
+                          onChange={(e) => setNuevaCategoriaInput(e.target.value)}
+                          className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                        />
+                        <button
+                          type="submit"
+                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 shrink-0"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                          Agregar Categoría
+                        </button>
+                      </form>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {categoriasDisponibles.map((cat, idx) => (
+                          <div key={`${cat}-${idx}`} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-slate-50 border border-slate-200">
+                            {editandoCategoriaIdx === idx ? (
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="text"
+                                  value={editandoCategoriaValor}
+                                  onChange={(e) => setEditandoCategoriaValor(e.target.value)}
+                                  className="flex-1 px-2.5 py-1 rounded-lg border border-indigo-400 text-xs font-bold bg-white"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleGuardarEdicionCategoria(idx)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold"
+                                >
+                                  OK
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditandoCategoriaIdx(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold"
+                                >
+                                  X
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-xs font-bold text-slate-800">{cat}</span>
+                                <div className="flex items-center gap-1">
                                   <button
                                     type="button"
                                     onClick={() => {
-                                      setEditandoCategoriaIdx(null);
-                                      setEditandoCategoriaValor('');
+                                      setEditandoCategoriaIdx(idx);
+                                      setEditandoCategoriaValor(cat);
                                     }}
-                                    className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 font-bold text-[11px]"
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-indigo-900 hover:bg-indigo-50"
+                                    title="Editar categoría"
                                   >
-                                    ✕
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEliminarCategoriaEgreso(idx)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                    title="Eliminar categoría"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
                                   </button>
                                 </div>
-                              ) : (
-                                <>
-                                  <span className="font-bold text-slate-800 px-1">{cat}</span>
-                                  <div className="flex items-center gap-1 shrink-0">
-                                    <button
-                                      type="button"
-                                      onClick={() => {
-                                        setEditandoCategoriaIdx(idx);
-                                        setEditandoCategoriaValor(cat);
-                                      }}
-                                      className="p-1.5 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-800 transition-colors"
-                                      title="Modificar categoría"
-                                    >
-                                      <Edit3 className="w-3.5 h-3.5" />
-                                    </button>
-                                    <button
-                                      type="button"
-                                      onClick={() => handleEliminarCategoriaEgreso(idx)}
-                                      className="p-1.5 rounded-lg bg-rose-50 hover:bg-rose-100 text-rose-700 transition-colors"
-                                      title="Eliminar categoría"
-                                    >
-                                      <Trash2 className="w-3.5 h-3.5" />
-                                    </button>
-                                  </div>
-                                </>
-                              )}
-                            </div>
-                          ))}
+                              </>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-5">
+                      <div className="flex items-center gap-3 border-b border-slate-100 pb-4">
+                        <div className="p-2.5 bg-emerald-50 text-emerald-700 rounded-xl">
+                          <Tags className="w-5 h-5" />
+                        </div>
+                        <div>
+                          <h3 className="text-base font-bold text-slate-900">Categorías de Ingresos Directos (Tesorería)</h3>
+                          <p className="text-xs text-slate-500">Agrega, modifica o elimina las categorías disponibles al registrar un ingreso directo en Tesorería.</p>
                         </div>
                       </div>
 
-                      <div className="bg-slate-100 p-3 rounded-xl text-[11px] text-slate-600">
-                        Total categorías configuradas: <strong>{categoriasDisponibles.length}</strong>. Los cambios se sincronizan de inmediato con el formulario de salidas de Tesorería.
+                      <form onSubmit={handleAgregarCategoriaIngresoDirecto} className="flex flex-col sm:flex-row gap-2">
+                        <input
+                          type="text"
+                          placeholder="Nueva categoría de ingreso (Ej. Ofrenda Misionera, Primicias...)"
+                          value={nuevaCategoriaIngresoInput}
+                          onChange={(e) => setNuevaCategoriaIngresoInput(e.target.value)}
+                          className="flex-1 px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                        />
+                        <button
+                          type="submit"
+                          className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-xs flex items-center justify-center gap-1.5 shrink-0"
+                        >
+                          <PlusCircle className="w-4 h-4" />
+                          Agregar Categoría
+                        </button>
+                      </form>
+
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                        {categoriasIngresoDirectoDisponibles.map((cat, idx) => (
+                          <div key={`ing-${cat}-${idx}`} className="flex items-center justify-between gap-2 p-3 rounded-xl bg-emerald-50/40 border border-emerald-200/70">
+                            {editandoCategoriaIngresoIdx === idx ? (
+                              <div className="flex items-center gap-1.5 flex-1">
+                                <input
+                                  type="text"
+                                  value={editandoCategoriaIngresoValor}
+                                  onChange={(e) => setEditandoCategoriaIngresoValor(e.target.value)}
+                                  className="flex-1 px-2.5 py-1 rounded-lg border border-emerald-400 text-xs font-bold bg-white"
+                                  autoFocus
+                                />
+                                <button
+                                  type="button"
+                                  onClick={() => handleGuardarEdicionCategoriaIngresoDirecto(idx)}
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-600 text-white text-[11px] font-bold"
+                                >
+                                  OK
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => setEditandoCategoriaIngresoIdx(null)}
+                                  className="px-2 py-1 rounded-lg bg-slate-200 text-slate-700 text-[11px] font-bold"
+                                >
+                                  X
+                                </button>
+                              </div>
+                            ) : (
+                              <>
+                                <span className="text-xs font-bold text-slate-800">{cat}</span>
+                                <div className="flex items-center gap-1">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setEditandoCategoriaIngresoIdx(idx);
+                                      setEditandoCategoriaIngresoValor(cat);
+                                    }}
+                                    className="p-1.5 rounded-lg text-slate-500 hover:text-emerald-800 hover:bg-emerald-100"
+                                    title="Editar categoría de ingreso"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => handleEliminarCategoriaIngresoDirecto(idx)}
+                                    className="p-1.5 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50"
+                                    title="Eliminar categoría de ingreso"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5" />
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+                        ))}
                       </div>
                     </div>
                   </div>
                 )}
 
                 {adminTab === 'USUARIOS' && (
-                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-                    <div className="lg:col-span-5 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="font-bold text-base text-slate-900 mb-1 flex items-center gap-2">
-                        <UserPlus className="w-5 h-5 text-indigo-700" />
-                        Crear Nuevo Usuario del Sistema
-                      </h3>
-                      <p className="text-xs text-slate-500 mb-4">Asigna credenciales directamente para Recaudadores, Tesoreros, Pastores o Administradores.</p>
+                  <div className="grid grid-cols-1 lg:grid-cols-12 gap-8">
+                    <div className="lg:col-span-5">
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                        <h3 className="text-base font-bold text-slate-900 mb-1">Crear Nuevo Usuario del Sistema</h3>
+                        <p className="text-xs text-slate-500 mb-4">Asigna credenciales a Recaudadores, Tesoreros, Pastores o Administradores.</p>
 
-                      <form onSubmit={handleCrearUsuarioSistema} className="space-y-4">
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
-                          <input
-                            type="text"
-                            required
-                            placeholder="Ej. Hna. Ana María"
-                            value={nuevoUserNombre}
-                            onChange={(e) => setNuevoUserNombre(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
-                          />
-                        </div>
-
-                        <div className="grid grid-cols-2 gap-3">
+                        <form onSubmit={handleCrearUsuarioSistema} className="space-y-4">
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario (Login)</label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
                             <input
                               type="text"
                               required
-                              placeholder="Ej. anamaria"
+                              placeholder="Ej. Hna. Ana María Torres"
+                              value={nuevoUserNombre}
+                              onChange={(e) => setNuevoUserNombre(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                            />
+                          </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario (Alias de ingreso)</label>
+                            <input
+                              type="text"
+                              required
+                              placeholder="Ej. ana"
                               value={nuevoUserAlias}
                               onChange={(e) => setNuevoUserAlias(e.target.value)}
                               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
                             />
                           </div>
                           <div>
-                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Clave / Contraseña</label>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
                             <input
                               type="text"
                               required
@@ -5153,65 +5514,44 @@ export default function App() {
                               className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
                             />
                           </div>
-                        </div>
+                          <div>
+                            <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol en el Sistema</label>
+                            <select
+                              value={nuevoUserRol}
+                              onChange={(e) => setNuevoUserRol(e.target.value)}
+                              className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
+                            >
+                              <option value="RECAUDADOR">Recaudador</option>
+                              <option value="TESORERO">Tesorero(a)</option>
+                              <option value="PASTOR">Pastor (Auditoría y Cierres)</option>
+                              <option value="ADMINISTRADOR">Administrador Técnico</option>
+                            </select>
+                          </div>
 
-                        <div>
-                          <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol en el Sistema</label>
-                          <select
-                            value={nuevoUserRol}
-                            onChange={(e) => setNuevoUserRol(e.target.value)}
-                            className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
+                          <button
+                            type="submit"
+                            className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all flex items-center justify-center gap-2"
                           >
-                            <option value="RECAUDADOR">Recaudador</option>
-                            <option value="TESORERO">Tesorero</option>
-                            <option value="PASTOR">Pastor (Auditoría & Cierres)</option>
-                            <option value="ADMINISTRADOR">Administrador</option>
-                          </select>
-                        </div>
-
-                        <button
-                          type="submit"
-                          className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-sm shadow-md transition-all"
-                        >
-                          Crear Usuario y Guardar
-                        </button>
-                      </form>
+                            <UserPlus className="w-4 h-4" />
+                            Crear Usuario
+                          </button>
+                        </form>
+                      </div>
                     </div>
 
-                    <div className="lg:col-span-7 bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
-                      <h3 className="font-bold text-base text-slate-900 mb-1">Cuentas Registradas (Edición Directa)</h3>
-                      <p className="text-xs text-slate-500 mb-4">Edita claves, nombres o roles directamente, o autoriza solicitudes de olvido de contraseña.</p>
+                    <div className="lg:col-span-7">
+                      <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
+                        <h3 className="text-base font-bold text-slate-900 mb-4">Cuentas Registradas y Permisos de Clave</h3>
 
-                      <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                          <thead>
-                            <tr className="border-b border-slate-200 bg-slate-100 text-[11px] font-bold uppercase text-slate-600">
-                              <th className="p-3">Nombre</th>
-                              <th className="p-3">Usuario / Clave</th>
-                              <th className="p-3">Rol</th>
-                              <th className="p-3 text-center">Estado</th>
-                              <th className="p-3 text-center">Acciones</th>
-                            </tr>
-                          </thead>
-                          <tbody className="divide-y divide-slate-100 text-xs">
-                            {(usuariosSistema || []).map((u) => {
-                              if (!u) return null;
-                              return (
-                                <tr key={u.id} className="hover:bg-slate-50">
-                                  <td className="p-3 font-bold text-slate-800">
-                                    {u.nombre}
-                                    {u.solicitudClave && (
-                                      <span className="block text-[10px] font-extrabold text-amber-800 bg-amber-100 px-2 py-0.5 rounded mt-1">
-                                        Solicitó Cambio de Clave
-                                      </span>
-                                    )}
-                                  </td>
-                                  <td className="p-3 font-mono text-indigo-800">
-                                    <span className="font-bold block">{u.usuario}</span>
-                                    <span className="text-[11px] text-slate-500">Clave: {u.clave}</span>
-                                  </td>
-                                  <td className="p-3">
-                                    <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${
+                        <div className="space-y-3">
+                          {(usuariosSistema || []).map((u) => {
+                            if (!u) return null;
+                            return (
+                              <div key={u.id} className="p-4 rounded-xl border border-slate-200 bg-slate-50/70 flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                                <div>
+                                  <div className="flex items-center gap-2 flex-wrap">
+                                    <span className="font-bold text-slate-900 text-sm">{u.nombre}</span>
+                                    <span className={`text-[10px] font-extrabold px-2 py-0.5 rounded-full ${
                                       u.rol === 'PASTOR'
                                         ? 'bg-amber-100 text-amber-900'
                                         : u.rol === 'ADMINISTRADOR'
@@ -5222,108 +5562,112 @@ export default function App() {
                                     }`}>
                                       {u.rol}
                                     </span>
-                                  </td>
-                                  <td className="p-3 text-center">
-                                    <button
-                                      onClick={() => handleToggleEstadoUsuario(u.id)}
-                                      className={`px-2.5 py-1 rounded-full text-[11px] font-bold transition-all ${
-                                        u.activo ? 'bg-emerald-100 text-emerald-800 hover:bg-emerald-200' : 'bg-rose-100 text-rose-800 hover:bg-rose-200'
-                                      }`}
-                                    >
-                                      {u.activo ? 'Activo ✓' : 'Inactivo ✕'}
-                                    </button>
-                                  </td>
-                                  <td className="p-3 text-center whitespace-nowrap">
-                                    <div className="flex items-center justify-center gap-1.5 flex-wrap">
-                                      {u.solicitudClave && (
-                                        <>
-                                          <button
-                                            onClick={() => handleAutorizarCambioClave(u.id, true)}
-                                            className="px-2 py-1 rounded bg-emerald-600 text-white font-bold text-[10px] hover:bg-emerald-700"
-                                          >
-                                            Autorizar Clave
-                                          </button>
-                                          <button
-                                            onClick={() => handleAutorizarCambioClave(u.id, false)}
-                                            className="px-2 py-1 rounded bg-rose-600 text-white font-bold text-[10px] hover:bg-rose-700"
-                                          >
-                                            Denegar
-                                          </button>
-                                        </>
-                                      )}
+                                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                                      u.activo ? 'bg-emerald-100 text-emerald-800' : 'bg-rose-100 text-rose-800'
+                                    }`}>
+                                      {u.activo ? 'Activo' : 'Inactivo'}
+                                    </span>
+                                  </div>
+                                  <div className="text-xs text-slate-500 mt-1 font-mono">
+                                    Usuario: <strong>{u.usuario}</strong> | Clave: <strong>{u.clave}</strong>
+                                  </div>
+                                  {u.solicitudClave && (
+                                    <span className="inline-block mt-1 text-[11px] font-bold text-amber-800 bg-amber-100 px-2.5 py-0.5 rounded animate-pulse">
+                                      ¡Solicita permiso para cambiar su clave!
+                                    </span>
+                                  )}
+                                </div>
+
+                                <div className="flex items-center gap-2 flex-wrap">
+                                  {u.solicitudClave && (
+                                    <>
                                       <button
-                                        onClick={() => openEditarUsuarioModal(u)}
-                                        className="px-2.5 py-1 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-900 font-bold text-[10px] border border-indigo-200 flex items-center gap-1"
-                                        title="Editar usuario y clave directamente"
+                                        onClick={() => handleAutorizarCambioClave(u.id, true)}
+                                        className="px-2.5 py-1.5 rounded-lg bg-emerald-600 text-white font-bold text-xs shadow-xs"
                                       >
-                                        <UserCog className="w-3 h-3" />
-                                        Editar
+                                        Autorizar Cambio
                                       </button>
                                       <button
-                                        onClick={() => setEliminarUsuarioModal(u)}
-                                        className="px-2.5 py-1 rounded bg-rose-50 hover:bg-rose-100 text-rose-700 font-bold text-[10px] border border-rose-200"
-                                        title="Eliminar usuario"
+                                        onClick={() => handleAutorizarCambioClave(u.id, false)}
+                                        className="px-2.5 py-1.5 rounded-lg bg-rose-600 text-white font-bold text-xs shadow-xs"
                                       >
-                                        Eliminar
+                                        Rechazar
                                       </button>
-                                    </div>
-                                  </td>
-                                </tr>
-                              );
-                            })}
-                          </tbody>
-                        </table>
+                                    </>
+                                  )}
+
+                                  <button
+                                    type="button"
+                                    onClick={() => openEditarUsuarioModal(u)}
+                                    className="px-2.5 py-1.5 rounded-lg bg-indigo-50 text-indigo-900 border border-indigo-200 hover:bg-indigo-100 font-bold text-xs flex items-center gap-1"
+                                    title="Modificar usuario, rol o clave"
+                                  >
+                                    <Edit3 className="w-3.5 h-3.5" />
+                                    Editar
+                                  </button>
+
+                                  <button
+                                    onClick={() => handleToggleEstadoUsuario(u.id)}
+                                    className="px-3 py-1.5 rounded-lg border border-slate-300 bg-white hover:bg-slate-100 font-semibold text-xs text-slate-700"
+                                  >
+                                    {u.activo ? 'Inactivar' : 'Activar'}
+                                  </button>
+
+                                  <button
+                                    type="button"
+                                    onClick={() => setEliminarUsuarioModal(u)}
+                                    className="p-2 rounded-lg text-slate-400 hover:text-rose-600 hover:bg-rose-50 transition-colors"
+                                    title="Eliminar usuario del sistema"
+                                  >
+                                    <Trash2 className="w-4 h-4" />
+                                  </button>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
                       </div>
                     </div>
                   </div>
                 )}
 
                 {adminTab === 'RESPALDO' && (
-                  <div className="max-w-3xl mx-auto bg-white rounded-2xl shadow-sm border border-slate-200 p-8 space-y-6">
-                    <div className="text-center space-y-2">
-                      <div className="w-16 h-16 bg-amber-100 text-amber-900 rounded-2xl flex items-center justify-center mx-auto shadow-inner">
-                        <Database className="w-8 h-8" />
+                  <div className="max-w-3xl mx-auto grid grid-cols-1 md:grid-cols-2 gap-6">
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="w-12 h-12 bg-emerald-100 text-emerald-800 rounded-xl flex items-center justify-center">
+                          <Download className="w-6 h-6" />
+                        </div>
+                        <h3 className="text-base font-bold text-slate-900">Exportar Copia de Seguridad (JSON)</h3>
+                        <p className="text-xs text-slate-500">
+                          Descarga un archivo completo con todos los movimientos del libro, usuarios, configuración y actas de cierre.
+                        </p>
                       </div>
-                      <h3 className="text-xl font-bold text-slate-900">Respaldo y Restauración de Base de Datos (JSON)</h3>
-                      <p className="text-sm text-slate-500 max-w-xl mx-auto">
-                        Exporta una copia de seguridad íntegra con todos los movimientos, usuarios, saldos iniciales y cierres pastorales, o restaura un respaldo previo.
-                      </p>
+                      <button
+                        type="button"
+                        onClick={handleDescargarRespaldoJSON}
+                        className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2"
+                      >
+                        <Download className="w-4 h-4" />
+                        Descargar Respaldo Completo (.json)
+                      </button>
                     </div>
 
-                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pt-4">
-                      <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col justify-between gap-4">
-                        <div>
-                          <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                            <Download className="w-5 h-5 text-emerald-600" />
-                            1. Exportar Copia de Seguridad
-                          </h4>
-                          <p className="text-xs text-slate-600 mt-1">
-                            Descarga un archivo <code>.json</code> con el estado actual completo ({movimientos.length} movimientos, {usuariosSistema.length} usuarios, {cierresMensuales.length} cierres).
-                          </p>
+                    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6 flex flex-col justify-between space-y-4">
+                      <div className="space-y-2">
+                        <div className="w-12 h-12 bg-amber-100 text-amber-800 rounded-xl flex items-center justify-center">
+                          <Upload className="w-6 h-6" />
                         </div>
-                        <button
-                          type="button"
-                          onClick={handleDescargarRespaldoJSON}
-                          className="w-full py-3 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2"
-                        >
-                          <Download className="w-4 h-4" />
-                          Descargar Respaldo JSON
-                        </button>
+                        <h3 className="text-base font-bold text-slate-900">Restaurar desde Archivo JSON</h3>
+                        <p className="text-xs text-slate-500">
+                          Carga una copia de seguridad previamente descargada para restaurar el estado completo en Supabase.
+                        </p>
                       </div>
 
-                      <div className="p-6 rounded-2xl border border-slate-200 bg-slate-50 flex flex-col justify-between gap-4">
-                        <div>
-                          <h4 className="font-bold text-slate-900 text-base flex items-center gap-2">
-                            <Upload className="w-5 h-5 text-indigo-700" />
-                            2. Importar / Restaurar Respaldo
-                          </h4>
-                          <p className="text-xs text-slate-600 mt-1">
-                            Selecciona un archivo <code>.json</code> descargado previamente para previsualizarlo y restaurar la información en la nube.
-                          </p>
-                        </div>
-                        <label className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md transition-all flex items-center justify-center gap-2 cursor-pointer">
+                      <div>
+                        <label className="w-full py-3 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-sm flex items-center justify-center gap-2 cursor-pointer">
                           <Upload className="w-4 h-4" />
-                          <span>Seleccionar Archivo JSON</span>
+                          Seleccionar Archivo .json
                           <input
                             type="file"
                             accept=".json,application/json"
@@ -5335,49 +5679,44 @@ export default function App() {
                     </div>
 
                     {jsonBackupPreview && (
-                      <div className="p-5 rounded-2xl border-2 border-amber-400 bg-amber-50 space-y-4">
-                        <div className="flex items-start justify-between">
-                          <div>
-                            <span className="text-xs font-extrabold uppercase text-amber-900 bg-amber-200 px-2.5 py-0.5 rounded">
-                              Vista Previa de Restauración
-                            </span>
-                            <h4 className="font-bold text-slate-900 text-sm mt-2">Archivo: {jsonBackupPreview.nombreArchivo}</h4>
-                            <p className="text-xs text-slate-600">Fecha de exportación: {jsonBackupPreview.fechaExportacion}</p>
-                          </div>
-                          <button onClick={() => setJsonBackupPreview(null)} className="text-slate-500 hover:text-slate-800">
-                            <X className="w-5 h-5" />
+                      <div className="md:col-span-2 bg-amber-50 border-2 border-amber-400 rounded-2xl p-6 space-y-4">
+                        <div className="flex items-center justify-between">
+                          <h4 className="font-bold text-amber-950 text-sm">Vista Previa de Restauración: {jsonBackupPreview.nombreArchivo}</h4>
+                          <button onClick={() => setJsonBackupPreview(null)} className="text-slate-500 hover:text-slate-900">
+                            <X className="w-4 h-4" />
                           </button>
                         </div>
-
-                        <div className="grid grid-cols-3 gap-3 bg-white p-3 rounded-xl border border-amber-200 text-center text-xs">
+                        <div className="grid grid-cols-3 gap-3 text-xs bg-white p-3 rounded-xl border border-amber-200 text-center">
                           <div>
                             <span className="text-slate-400 block">Movimientos</span>
-                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalMovimientos}</span>
+                            <span className="font-extrabold text-slate-900 text-sm">{jsonBackupPreview.totalMovimientos}</span>
                           </div>
                           <div>
                             <span className="text-slate-400 block">Usuarios</span>
-                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalUsuarios}</span>
+                            <span className="font-extrabold text-slate-900 text-sm">{jsonBackupPreview.totalUsuarios}</span>
                           </div>
                           <div>
-                            <span className="text-slate-400 block">Cierres</span>
-                            <span className="font-extrabold text-slate-900 text-base">{jsonBackupPreview.totalCierres}</span>
+                            <span className="text-slate-400 block">Actas de Cierre</span>
+                            <span className="font-extrabold text-slate-900 text-sm">{jsonBackupPreview.totalCierres}</span>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-3">
-                          <button
-                            type="button"
-                            onClick={handleConfirmarRestauracionJSON}
-                            className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
-                          >
-                            Confirmar y Restaurar Base de Datos
-                          </button>
+                        <p className="text-xs text-amber-900">
+                          <strong>Advertencia:</strong> Esta acción reemplazará los datos actuales en la nube por los del archivo seleccionado.
+                        </p>
+                        <div className="flex justify-end gap-2">
                           <button
                             type="button"
                             onClick={() => setJsonBackupPreview(null)}
-                            className="px-4 py-2.5 rounded-xl bg-white border border-slate-300 text-slate-700 font-bold text-xs"
+                            className="px-4 py-2 rounded-xl border border-slate-300 bg-white text-slate-700 font-bold text-xs"
                           >
                             Cancelar
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleConfirmarRestauracionJSON}
+                            className="px-5 py-2 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
+                          >
+                            Confirmar y Restaurar Base de Datos
                           </button>
                         </div>
                       </div>
@@ -5392,62 +5731,74 @@ export default function App() {
 
       {/* ================= MODALES DEL SISTEMA ================= */}
 
-      {/* MODAL: CONFIGURAR SALDO INICIAL */}
       {showSaldoInicialModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <div className="flex items-center gap-2">
                 <Banknote className="w-5 h-5 text-emerald-400" />
                 <h3 className="font-bold text-base">Configurar Saldo Inicial de Caja</h3>
               </div>
-              <button onClick={() => setShowSaldoInicialModal(false)} className="text-indigo-300 hover:text-white">
+              <button onClick={() => setShowSaldoInicialModal(false)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
+
             <form onSubmit={handleGuardarSaldoInicialMes} className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                Define el saldo base disponible en caja. Este valor se suma automáticamente a todas las entradas registradas menos las salidas netas.
-              </p>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Período / Mes de Referencia</label>
-                <input
-                  type="month"
-                  required
-                  value={mesSaldoInicialModal}
-                  onChange={(e) => {
-                    const m = e.target.value;
-                    setMesSaldoInicialModal(m);
-                    const sMap = configuracionApp.saldosInicialesPorMes || {};
-                    const val = sMap[m] !== undefined ? sMap[m] : configuracionApp.saldoInicialGlobal || 0;
-                    setValorSaldoInicialModalInput(String(val));
-                  }}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
-                />
+              <div className="bg-indigo-50 p-3.5 rounded-xl border border-indigo-100 text-xs text-indigo-950 space-y-1">
+                <p>
+                  Define el dinero base que existía en caja antes de los ingresos registrados.
+                </p>
+                <p className="text-[11px] text-indigo-700">
+                  <strong>Saldo Total en Caja</strong> = Saldo Inicial + Total Entradas - Total Salidas Netas.
+                </p>
               </div>
+
+              {modoVistaCaja === 'MENSUAL' && (
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Mes Correspondiente</label>
+                  <input
+                    type="month"
+                    required
+                    value={mesSaldoInicialModal}
+                    onChange={(e) => {
+                      const nuevoMes = e.target.value;
+                      setMesSaldoInicialModal(nuevoMes);
+                      const saldosMap = configuracionApp.saldosInicialesPorMes || {};
+                      const val = saldosMap[nuevoMes] !== undefined ? saldosMap[nuevoMes] : configuracionApp.saldoInicialGlobal || 0;
+                      setValorSaldoInicialModalInput(String(val));
+                    }}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm font-bold bg-white"
+                  />
+                </div>
+              )}
+
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor Saldo Inicial ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                  Valor del Saldo Inicial ($)
+                </label>
                 <input
                   type="number"
-                  step="100"
                   required
+                  placeholder="Ej. 500000"
                   value={valorSaldoInicialModalInput}
                   onChange={(e) => setValorSaldoInicialModalInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-indigo-950 bg-indigo-50/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-indigo-950 bg-white"
                   autoFocus
                 />
               </div>
-              <div className="flex items-center gap-3 pt-2">
+
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setShowSaldoInicialModal(false)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
                   Guardar Saldo Inicial
                 </button>
@@ -5457,61 +5808,55 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: DEVOLVER SOBRANTE EN LIBRO ÚNICO */}
       {sobranteLibroModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-emerald-700 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Banknote className="w-5 h-5 text-emerald-200" />
-                <h3 className="font-bold text-base">Reintegrar Sobrante a Caja</h3>
-              </div>
-              <button onClick={() => setSobranteLibroModal(null)} className="text-emerald-200 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-emerald-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Devolver Sobrante de Egreso a Caja</h3>
+              <button onClick={() => setSobranteLibroModal(null)} className="text-emerald-100 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleConfirmarSobranteLibro} className="p-6 space-y-4">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs space-y-1">
-                <span className="font-mono font-bold text-indigo-800">{sobranteLibroModal.id}</span>
-                <p className="font-bold text-slate-900">{sobranteLibroModal.actividad}</p>
-                <p className="text-slate-600">{sobranteLibroModal.descripcion}</p>
-                <div className="pt-2 border-t border-slate-200 flex justify-between font-bold">
-                  <span>Salida Original: {formatCOP(sobranteLibroModal.montoSalida)}</span>
-                  <span className="text-emerald-700">Ya Devuelto: {formatCOP(sobranteLibroModal.montoSobranteDevuelto || 0)}</span>
-                </div>
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
+                <div>Egreso: <strong className="text-slate-900">{sobranteLibroModal.id} • {sobranteLibroModal.actividad}</strong></div>
+                <div>Valor Entregado Inicialmente: <strong>{formatCOP(sobranteLibroModal.montoSalida)}</strong></div>
+                {Number(sobranteLibroModal.montoSobranteDevuelto) > 0 && (
+                  <div className="text-emerald-700">Ya devuelto anteriormente: <strong>{formatCOP(sobranteLibroModal.montoSobranteDevuelto)}</strong></div>
+                )}
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor Sobrante que Regresa a Caja ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor del Sobrante a Reintegrar ($)</label>
                 <input
                   type="number"
                   min="100"
                   step="100"
                   required
-                  placeholder="Ej. 20000"
+                  placeholder="Ej. 25000"
                   value={valorSobranteLibroInput}
                   onChange={(e) => setValorSobranteLibroInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-white"
                   autoFocus
                 />
                 <span className="text-[11px] text-slate-500 mt-1 block">
-                  Este valor se restará del gasto neto y aumentará inmediatamente el Saldo Real en Caja.
+                  Este valor se restará del gasto neto y se sumará automáticamente al saldo disponible en caja.
                 </span>
               </div>
 
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setSobranteLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs hover:bg-slate-50"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
-                  Confirmar Devolución
+                  Reintegrar a Caja
                 </button>
               </div>
             </form>
@@ -5519,46 +5864,45 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: SOLICITAR CORRECCIÓN / EDICIÓN EN LIBRO ÚNICO (PARA PASTOR) */}
       {solicitudEdicionLibroModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-indigo-300" />
-                <h3 className="font-bold text-base">Solicitar Permiso de Edición al Pastor</h3>
-              </div>
-              <button onClick={() => setSolicitudEdicionLibroModal(null)} className="text-indigo-300 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Permiso para Corregir Registro</h3>
+              <button onClick={() => setSolicitudEdicionLibroModal(null)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleEnviarSolicitudEdicionLibro} className="p-6 space-y-4">
               <p className="text-xs text-slate-600">
-                Por seguridad contable, para corregir los datos de un movimiento ya asentado en el Libro Único (<strong>{solicitudEdicionLibroModal.id} - {solicitudEdicionLibroModal.actividad}</strong>), necesitas la autorización previa del Pastor.
+                Por seguridad contable, toda modificación de registros asentados en el Libro Único requiere autorización previa del Pastor.
               </p>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                Registro a corregir: <strong className="text-slate-900">{solicitudEdicionLibroModal.id} - {solicitudEdicionLibroModal.actividad}</strong>
+              </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Motivo de la Corrección</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Motivo de la corrección</label>
                 <textarea
                   rows="3"
                   required
-                  placeholder="Explica qué dato quedó mal digitado y cuál es el valor correcto..."
+                  placeholder="Ej. Error de digitación en el valor o nombre del responsable..."
                   value={motivoEdicionLibroInput}
                   onChange={(e) => setMotivoEdicionLibroInput(e.target.value)}
                   className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
                   autoFocus
                 ></textarea>
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setSolicitudEdicionLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-sm"
                 >
                   Enviar Solicitud al Pastor
                 </button>
@@ -5568,33 +5912,29 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: CORREGIR REGISTRO EN LIBRO ÚNICO (AUTORIZADO POR PASTOR) */}
       {editarLibroModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Edit3 className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-base">Corregir Registro ({editarLibroModal.id})</h3>
-              </div>
-              <button onClick={() => setEditarLibroModal(null)} className="text-indigo-300 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-lg w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Corregir Registro del Libro ({editarLibroModal.id})</h3>
+              <button onClick={() => setEditarLibroModal(null)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleGuardarEdicionLibro} className="p-6 space-y-4">
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Fecha</label>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Fecha</label>
                   <input
                     type="date"
                     required
                     value={editLibroFecha}
                     onChange={(e) => setEditLibroFecha(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white font-bold"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-xs bg-white"
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Actividad / Categoría</label>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Actividad / Categoría</label>
                   <input
                     type="text"
                     required
@@ -5606,7 +5946,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Descripción / Concepto</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Descripción / Detalle</label>
                 <input
                   type="text"
                   required
@@ -5617,7 +5957,7 @@ export default function App() {
               </div>
 
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Responsable</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Responsable</label>
                 <input
                   type="text"
                   required
@@ -5627,48 +5967,46 @@ export default function App() {
                 />
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">
-                    {editarLibroModal.tipo === 'INGRESO' ? 'Valor Entrada Real ($)' : 'Valor Salida Total ($)'}
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">
+                    {editarLibroModal.tipo === 'INGRESO' ? 'Valor Ingreso ($)' : 'Valor Entregado ($)'}
                   </label>
                   <input
                     type="number"
                     min="0"
-                    step="100"
                     required
                     value={editLibroMonto}
                     onChange={(e) => setEditLibroMonto(e.target.value)}
-                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-indigo-950 bg-indigo-50/40"
+                    className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-indigo-950 bg-white"
                   />
                 </div>
 
                 {editarLibroModal.tipo === 'EGRESO' && (
                   <div>
-                    <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Sobrante Devuelto ($)</label>
+                    <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Sobrante Devuelto ($)</label>
                     <input
                       type="number"
                       min="0"
-                      step="100"
                       value={editLibroSobrante}
                       onChange={(e) => setEditLibroSobrante(e.target.value)}
-                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-emerald-800 bg-emerald-50/40"
+                      className="w-full px-3 py-2 rounded-xl border border-slate-300 text-sm font-extrabold text-emerald-700 bg-white"
                     />
                   </div>
                 )}
               </div>
 
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditarLibroModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
                   Guardar Corrección
                 </button>
@@ -5678,34 +6016,30 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: EDITAR USUARIO DIRECTAMENTE (ADMINISTRADOR) */}
       {editarUsuarioModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <UserCog className="w-5 h-5 text-sky-400" />
-                <h3 className="font-bold text-base">Editar Usuario del Sistema</h3>
-              </div>
-              <button onClick={() => setEditarUsuarioModal(null)} className="text-indigo-300 hover:text-white">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Editar Usuario del Sistema</h3>
+              <button onClick={() => setEditarUsuarioModal(null)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleGuardarEdicionUsuario} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nombre Completo</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nombre Completo</label>
                 <input
                   type="text"
                   required
                   value={editUserNombre}
                   onChange={(e) => setEditUserNombre(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
                 />
               </div>
 
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Usuario (Alias)</label>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Usuario (Alias)</label>
                   <input
                     type="text"
                     required
@@ -5715,52 +6049,55 @@ export default function App() {
                   />
                 </div>
                 <div>
-                  <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Contraseña / Clave</label>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña / Clave</label>
                   <input
                     type="text"
                     required
                     value={editUserClave}
                     onChange={(e) => setEditUserClave(e.target.value)}
-                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono font-bold text-indigo-900"
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
                   />
                 </div>
               </div>
 
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Rol Asignado</label>
-                <select
-                  value={editUserRol}
-                  onChange={(e) => setEditUserRol(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-semibold"
-                >
-                  <option value="RECAUDADOR">Recaudador</option>
-                  <option value="TESORERO">Tesorero</option>
-                  <option value="PASTOR">Pastor</option>
-                  <option value="ADMINISTRADOR">Administrador</option>
-                </select>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Rol Asignado</label>
+                  <select
+                    value={editUserRol}
+                    onChange={(e) => setEditUserRol(e.target.value)}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
+                  >
+                    <option value="RECAUDADOR">Recaudador</option>
+                    <option value="TESORERO">Tesorero(a)</option>
+                    <option value="PASTOR">Pastor</option>
+                    <option value="ADMINISTRADOR">Administrador</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Estado</label>
+                  <select
+                    value={editUserActivo ? 'ACTIVO' : 'INACTIVO'}
+                    onChange={(e) => setEditUserActivo(e.target.value === 'ACTIVO')}
+                    className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-bold"
+                  >
+                    <option value="ACTIVO">Activo</option>
+                    <option value="INACTIVO">Inactivo</option>
+                  </select>
+                </div>
               </div>
 
-              <label className="flex items-center gap-2 text-xs font-bold text-slate-700 cursor-pointer pt-1">
-                <input
-                  type="checkbox"
-                  checked={editUserActivo}
-                  onChange={(e) => setEditUserActivo(e.target.checked)}
-                  className="rounded text-indigo-950"
-                />
-                <span>Cuenta Activa (Puede iniciar sesión)</span>
-              </label>
-
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setEditarUsuarioModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
                   Guardar Cambios
                 </button>
@@ -5770,48 +6107,52 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: SOLICITAR BORRADO AL PASTOR */}
-      {solicitudBorradoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-amber-700 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <ShieldAlert className="w-5 h-5 text-amber-200" />
-                <h3 className="font-bold text-base">Solicitar Permiso de Borrado al Pastor</h3>
-              </div>
-              <button onClick={() => setSolicitudBorradoModal(null)} className="text-amber-200 hover:text-white">
+      {showCambioClaveTesoreroModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Cambiar Mi Contraseña (Tesorería)</h3>
+              <button onClick={() => setShowCambioClaveTesoreroModal(false)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleEnviarSolicitudBorrado} className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                Para borrar un registro del Libro Único (<strong>{solicitudBorradoModal.id} - {solicitudBorradoModal.actividad}</strong>), es obligatoria la autorización del Pastor.
-              </p>
+            <form onSubmit={handleCambiarClavePropiaTesorero} className="p-6 space-y-4">
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Motivo de Eliminación</label>
-                <textarea
-                  rows="3"
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
+                <input
+                  type="password"
                   required
-                  placeholder="Explica por qué se debe eliminar este registro..."
-                  value={motivoBorradoInput}
-                  onChange={(e) => setMotivoBorradoInput(e.target.value)}
-                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  placeholder="••••"
+                  value={claveActualTesInput}
+                  onChange={(e) => setClaveActualTesInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
                   autoFocus
-                ></textarea>
+                />
               </div>
-              <div className="flex items-center gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Escribe tu nueva clave..."
+                  value={claveNuevaTesInput}
+                  onChange={(e) => setClaveNuevaTesInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSolicitudBorradoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  onClick={() => setShowCambioClaveTesoreroModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
-                  Enviar Solicitud al Pastor
+                  Actualizar Mi Clave
                 </button>
               </div>
             </form>
@@ -5819,116 +6160,95 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: CONFIRMAR ELIMINACIÓN DE REGISTRO (YA AUTORIZADO POR PASTOR) */}
-      {eliminarItemModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-rose-700 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-5 h-5 text-rose-200" />
-                <h3 className="font-bold text-base">Eliminar Registro del Libro</h3>
-              </div>
-              <button onClick={() => setEliminarItemModal(null)} className="text-rose-200 hover:text-white">
+      {showCambioClaveRecaudadorModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Cambiar Mi Contraseña</h3>
+              <button onClick={() => setShowCambioClaveRecaudadorModal(false)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                El Pastor ya autorizó esta acción. ¿Confirmas la eliminación definitiva del registro <strong>{eliminarItemModal.id} ({eliminarItemModal.actividad})</strong>?
-              </p>
-              <div className="flex items-center gap-3 pt-2">
-                <button
-                  type="button"
-                  onClick={() => setEliminarItemModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleEliminarRegistroLibro}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-                >
-                  Sí, Eliminar Definitivamente
-                </button>
+            <form onSubmit={handleCambiarClavePropiaRecaudador} className="p-6 space-y-4">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Contraseña Actual</label>
+                <input
+                  type="password"
+                  required
+                  placeholder="••••"
+                  value={claveActualRecInput}
+                  onChange={(e) => setClaveActualRecInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  autoFocus
+                />
               </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: ELIMINAR USUARIO */}
-      {eliminarUsuarioModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-rose-700 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Trash2 className="w-5 h-5 text-rose-200" />
-                <h3 className="font-bold text-base">Eliminar Usuario</h3>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Escribe tu nueva clave..."
+                  value={claveNuevaRecInput}
+                  onChange={(e) => setClaveNuevaRecInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                />
               </div>
-              <button onClick={() => setEliminarUsuarioModal(null)} className="text-rose-200 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <div className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                ¿Estás seguro de eliminar la cuenta de <strong>{eliminarUsuarioModal.nombre}</strong> ({eliminarUsuarioModal.usuario})?
-              </p>
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setEliminarUsuarioModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
-                >
-                  Cancelar
-                </button>
-                <button
-                  type="button"
-                  onClick={handleConfirmarEliminarUsuario}
-                  className="flex-1 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-md"
-                >
-                  Eliminar Usuario
-                </button>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: SOLICITUD DE EDICIÓN DE RECAUDO (RECAUDADOR -> TESORERÍA) */}
-      {solicitudEdicionModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Solicitar Permiso de Edición</h3>
-              <button onClick={() => setSolicitudEdicionModal(null)} className="text-indigo-300 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleEnviarSolicitudEdicion} className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                Explica a Tesorería por qué necesitas editar el recaudo <strong>{solicitudEdicionModal.id}</strong> ({solicitudEdicionModal.actividad}).
-              </p>
-              <textarea
-                rows="3"
-                required
-                placeholder="Motivo del cambio..."
-                value={motivoSolicitudEdicion}
-                onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
-                autoFocus
-              ></textarea>
-              <div className="flex items-center gap-3">
-                <button
-                  type="button"
-                  onClick={() => setSolicitudEdicionModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  onClick={() => setShowCambioClaveRecaudadorModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Actualizar Mi Clave
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {showOlvidoClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Restablecimiento de Clave</h3>
+              <button onClick={() => setShowOlvidoClaveModal(false)} className="text-indigo-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudClave} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Escribe tu usuario para enviar una notificación al Administrador y que autorice el cambio de clave.
+              </p>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Tu Usuario</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. marta o tesorero"
+                  value={usuarioOlvidoInput}
+                  onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  autoFocus
+                />
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setShowOlvidoClaveModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-indigo-950 hover:bg-indigo-900 text-white font-bold text-xs shadow-sm"
                 >
                   Enviar Solicitud
                 </button>
@@ -5938,42 +6258,55 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: SOLICITUD INCOBRABLE */}
-      {solicitudIncobrableModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-amber-700 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Reportar Deuda Incobrable</h3>
-              <button onClick={() => setSolicitudIncobrableModal(null)} className="text-amber-200 hover:text-white">
+      {showRestablecerClaveModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-emerald-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Establecer Nueva Contraseña</h3>
+              <button onClick={() => setShowRestablecerClaveModal(false)} className="text-emerald-100 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
-            <form onSubmit={handleEnviarSolicitudIncobrable} className="p-6 space-y-4">
+            <form onSubmit={handleConfirmarNuevoCambioClave} className="p-6 space-y-4">
               <p className="text-xs text-slate-600">
-                Tesorería revisará el motivo para dar de baja esta deuda pendiente sin afectar tu entrega de dinero.
+                Si el Administrador ya autorizó tu solicitud, escribe tu usuario y crea tu nueva contraseña.
               </p>
-              <textarea
-                rows="3"
-                required
-                placeholder="Explica por qué no se pudo cobrar esta deuda..."
-                value={motivoIncobrableInput}
-                onChange={(e) => setMotivoIncobrableInput(e.target.value)}
-                className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
-                autoFocus
-              ></textarea>
-              <div className="flex items-center gap-3">
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Tu Usuario</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Ej. marta"
+                  value={usuarioRestablecerAlias}
+                  onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white"
+                  autoFocus
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Nueva Contraseña</label>
+                <input
+                  type="text"
+                  required
+                  placeholder="Escribe tu nueva clave..."
+                  value={nuevaClaveInput}
+                  onChange={(e) => setNuevaClaveInput(e.target.value)}
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-sm bg-white font-mono"
+                />
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
-                  onClick={() => setSolicitudIncobrableModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  onClick={() => setShowRestablecerClaveModal(false)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-amber-600 text-white font-bold text-xs"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
-                  Enviar a Tesorería
+                  Guardar Nueva Clave
                 </button>
               </div>
             </form>
@@ -5981,23 +6314,182 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: REGISTRAR ABONO DE DEUDOR */}
+      {eliminarUsuarioModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-rose-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Eliminar Usuario del Sistema</h3>
+              <button onClick={() => setEliminarUsuarioModal(null)} className="text-rose-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-700">
+                ¿Estás seguro de eliminar a <strong className="text-slate-900">{eliminarUsuarioModal.nombre}</strong> ({eliminarUsuarioModal.usuario})?
+              </p>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEliminarUsuarioModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleConfirmarEliminarUsuario}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Sí, Eliminar Usuario
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {eliminarItemModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-rose-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Eliminar Registro del Libro</h3>
+              <button onClick={() => setEliminarItemModal(null)} className="text-rose-200 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-6 space-y-4">
+              <p className="text-sm text-slate-700">
+                El Pastor ya autorizó este borrado. ¿Confirmas eliminar permanentemente <strong className="text-slate-900">{eliminarItemModal.id}</strong> ({eliminarItemModal.actividad})?
+              </p>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setEliminarItemModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="button"
+                  onClick={handleEliminarRegistroLibro}
+                  className="px-5 py-2.5 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Confirmar Borrado
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {solicitudBorradoModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-amber-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Permiso de Borrado al Pastor</h3>
+              <button onClick={() => setSolicitudBorradoModal(null)} className="text-amber-100 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudBorrado} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Ningún movimiento del Libro Único puede eliminarse sin la autorización previa del Pastor.
+              </p>
+              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs">
+                Registro a borrar: <strong className="text-slate-900">{solicitudBorradoModal.id} - {solicitudBorradoModal.actividad}</strong>
+              </div>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Motivo del Borrado</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Ej. Registro duplicado por error..."
+                  value={motivoBorradoInput}
+                  onChange={(e) => setMotivoBorradoInput(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  autoFocus
+                ></textarea>
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSolicitudBorradoModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Enviar Solicitud al Pastor
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {solicitudIncobrableModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-amber-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Baja de Deuda (Incobrable)</h3>
+              <button onClick={() => setSolicitudIncobrableModal(null)} className="text-amber-100 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudIncobrable} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Tesorería revisará tu solicitud para dar de baja esta deuda sin afectarte personalmente.
+              </p>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Motivo de la Baja</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Ej. La persona se mudó de ciudad o no tiene capacidad de pago..."
+                  value={motivoIncobrableInput}
+                  onChange={(e) => setMotivoIncobrableInput(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  autoFocus
+                ></textarea>
+              </div>
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSolicitudIncobrableModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Enviar Solicitud
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {abonoModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
               <h3 className="font-bold text-base">Registrar Abono de {abonoModal.comprador?.nombre}</h3>
-              <button onClick={() => setAbonoModal(null)} className="text-indigo-300 hover:text-white">
+              <button onClick={() => setAbonoModal(null)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleConfirmarAbono} className="p-6 space-y-4">
-              <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs flex justify-between font-bold">
-                <span>Saldo Pendiente Actual:</span>
-                <span className="text-rose-700">{formatCOP(abonoModal.saldoPendiente)}</span>
+              <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
+                <div>Saldo Pendiente Actual: <strong className="text-rose-700 text-sm">{formatCOP(abonoModal.saldoPendiente)}</strong></div>
               </div>
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Valor del Abono Recibido ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Valor que Abona Ahora ($)</label>
                 <input
                   type="number"
                   min="100"
@@ -6006,23 +6498,23 @@ export default function App() {
                   required
                   value={valorAbonoInput}
                   onChange={(e) => setValorAbonoInput(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-slate-900 bg-white"
                   autoFocus
                 />
               </div>
-              <div className="flex items-center gap-3">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setAbonoModal(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
-                  Confirmar Abono
+                  Guardar Abono
                 </button>
               </div>
             </form>
@@ -6030,222 +6522,105 @@ export default function App() {
         </div>
       )}
 
-      {/* MODAL: ARQUEO FÍSICO DE TESORERÍA */}
-      {arqueoItem && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <div className="flex items-center gap-2">
-                <Calculator className="w-5 h-5 text-emerald-400" />
-                <h3 className="font-bold text-base">Arqueo Físico en Caja</h3>
+      {solicitudEdicionModal && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-amber-700 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Solicitar Edición de Recaudo</h3>
+              <button onClick={() => setSolicitudEdicionModal(null)} className="text-amber-100 hover:text-white">
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <form onSubmit={handleEnviarSolicitudEdicion} className="p-6 space-y-4">
+              <p className="text-xs text-slate-600">
+                Tesorería autorizará el desbloqueo para que puedas editar compradores y cantidades.
+              </p>
+              <div>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Motivo de la Solicitud</label>
+                <textarea
+                  rows="3"
+                  required
+                  placeholder="Ej. Faltó anotar un comprador o corregir una cantidad..."
+                  value={motivoSolicitudEdicion}
+                  onChange={(e) => setMotivoSolicitudEdicion(e.target.value)}
+                  className="w-full p-3 rounded-xl border border-slate-300 text-xs bg-white"
+                  autoFocus
+                ></textarea>
               </div>
-              <button onClick={() => setArqueoItem(null)} className="text-indigo-300 hover:text-white">
+              <div className="flex items-center justify-end gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={() => setSolicitudEdicionModal(null)}
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-amber-600 hover:bg-amber-700 text-white font-bold text-xs shadow-sm"
+                >
+                  Enviar Solicitud
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {arqueoItem && (
+        <div className="fixed inset-0 z-50 bg-slate-950/60 backdrop-blur-xs flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full border border-slate-200 overflow-hidden">
+            <div className="bg-indigo-950 text-white px-6 py-4 flex items-center justify-between">
+              <h3 className="font-bold text-base">Arqueo y Conteo Físico</h3>
+              <button onClick={() => setArqueoItem(null)} className="text-indigo-200 hover:text-white">
                 <X className="w-5 h-5" />
               </button>
             </div>
             <form onSubmit={handleConfirmarArqueo} className="p-6 space-y-4">
               <div className="bg-slate-50 p-3.5 rounded-xl border border-slate-200 text-xs space-y-1">
-                <span className="font-mono font-bold text-indigo-800">{arqueoItem.id}</span>
-                <p className="font-bold text-slate-900">{arqueoItem.actividad}</p>
-                <p className="text-slate-600">Recaudador: <strong>{arqueoItem.responsable}</strong></p>
-                <div className="pt-2 border-t border-slate-200 flex justify-between font-extrabold text-sm">
-                  <span>Monto Reportado por Recibir:</span>
-                  <span className="text-indigo-950">
-                    {formatCOP(Number(arqueoItem.ultimoAbonoReportado) > 0 ? arqueoItem.ultimoAbonoReportado : arqueoItem.montoReportado)}
-                  </span>
-                </div>
+                <div>Actividad: <strong className="text-slate-900">{arqueoItem.actividad}</strong></div>
+                <div>Recaudador: <strong>{arqueoItem.responsable}</strong></div>
+                <div>Monto Reportado por Recibir: <strong className="text-indigo-950 text-sm">
+                  {formatCOP(Number(arqueoItem.ultimoAbonoReportado) > 0 ? arqueoItem.ultimoAbonoReportado : arqueoItem.montoReportado)}
+                </strong></div>
               </div>
-
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Efectivo / Transferencia Real Contada ($)</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Dinero Físico Contado Ahora ($)</label>
                 <input
                   type="number"
                   min="0"
-                  step="100"
                   required
                   value={montoFisicoContado}
                   onChange={(e) => setMontoFisicoContado(e.target.value)}
-                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-emerald-800 bg-emerald-50/40"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-base font-extrabold text-slate-900 bg-white"
                   autoFocus
                 />
               </div>
-
               <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Observación / Nota de Arqueo (Opcional)</label>
+                <label className="block text-xs font-bold uppercase text-slate-600 mb-1">Observación de Arqueo (Opcional)</label>
                 <input
                   type="text"
-                  placeholder="Ej. Todo cuadrado en efectivo..."
+                  placeholder="Nota en caso de diferencia o billetes..."
                   value={notaArqueo}
                   onChange={(e) => setNotaArqueo(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-xs bg-white"
+                  className="w-full px-3.5 py-2.5 rounded-xl border border-slate-300 text-xs bg-white"
                 />
               </div>
-
-              <div className="flex items-center gap-3 pt-2">
+              <div className="flex items-center justify-end gap-3 pt-2">
                 <button
                   type="button"
                   onClick={() => setArqueoItem(null)}
-                  className="flex-1 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-bold text-xs"
+                  className="px-4 py-2.5 rounded-xl border border-slate-300 text-slate-700 font-semibold text-xs hover:bg-slate-50"
                 >
                   Cancelar
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-md"
+                  className="px-5 py-2.5 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white font-bold text-xs shadow-sm"
                 >
-                  Confirmar Ingreso a Caja
+                  Confirmar Recepción
                 </button>
               </div>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: CAMBIO DE CLAVE PROPIA RECAUDADOR */}
-      {showCambioClaveRecaudadorModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Cambiar Mi Contraseña</h3>
-              <button onClick={() => setShowCambioClaveRecaudadorModal(false)} className="text-indigo-300 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCambiarClavePropiaRecaudador} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Clave Actual</label>
-                <input
-                  type="password"
-                  required
-                  value={claveActualRecInput}
-                  onChange={(e) => setClaveActualRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
-                <input
-                  type="password"
-                  required
-                  value={claveNuevaRecInput}
-                  onChange={(e) => setClaveNuevaRecInput(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
-                Actualizar Clave
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: CAMBIO DE CLAVE PROPIA TESORERO */}
-      {showCambioClaveTesoreroModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Cambiar Clave de Tesorería</h3>
-              <button onClick={() => setShowCambioClaveTesoreroModal(false)} className="text-indigo-300 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleCambiarClavePropiaTesorero} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Clave Actual</label>
-                <input
-                  type="password"
-                  required
-                  value={claveActualTesInput}
-                  onChange={(e) => setClaveActualTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
-                <input
-                  type="password"
-                  required
-                  value={claveNuevaTesInput}
-                  onChange={(e) => setClaveNuevaTesInput(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
-                Actualizar Clave
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: OLVIDO DE CLAVE */}
-      {showOlvidoClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
-            <div className="bg-indigo-950 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Recuperar Acceso</h3>
-              <button onClick={() => setShowOlvidoClaveModal(false)} className="text-indigo-300 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleEnviarSolicitudClave} className="p-6 space-y-4">
-              <p className="text-xs text-slate-600">
-                Ingresa tu nombre de usuario. Se enviará una alerta al Administrador para habilitar el cambio de contraseña.
-              </p>
-              <input
-                type="text"
-                required
-                placeholder="Ej. marta"
-                value={usuarioOlvidoInput}
-                onChange={(e) => setUsuarioOlvidoInput(e.target.value)}
-                className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                autoFocus
-              />
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-indigo-950 text-white font-bold text-xs">
-                Solicitar Restablecimiento
-              </button>
-            </form>
-          </div>
-        </div>
-      )}
-
-      {/* MODAL: RESTABLECER CLAVE CON AUTORIZACIÓN */}
-      {showRestablecerClaveModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white rounded-2xl shadow-2xl max-w-sm w-full overflow-hidden border border-slate-200">
-            <div className="bg-emerald-700 px-6 py-4 text-white flex items-center justify-between">
-              <h3 className="font-bold text-base">Crear Nueva Contraseña</h3>
-              <button onClick={() => setShowRestablecerClaveModal(false)} className="text-emerald-200 hover:text-white">
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-            <form onSubmit={handleConfirmarNuevoCambioClave} className="p-6 space-y-4">
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Tu Usuario</label>
-                <input
-                  type="text"
-                  required
-                  placeholder="Ej. marta"
-                  value={usuarioRestablecerAlias}
-                  onChange={(e) => setUsuarioRestablecerAlias(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <div>
-                <label className="block text-xs font-bold uppercase text-slate-700 mb-1">Nueva Clave</label>
-                <input
-                  type="password"
-                  required
-                  placeholder="••••"
-                  value={nuevaClaveInput}
-                  onChange={(e) => setNuevaClaveInput(e.target.value)}
-                  className="w-full px-3.5 py-2 rounded-xl border border-slate-300 text-sm bg-white"
-                />
-              </div>
-              <button type="submit" className="w-full py-2.5 rounded-xl bg-emerald-600 text-white font-bold text-xs">
-                Guardar Nueva Clave
-              </button>
             </form>
           </div>
         </div>
